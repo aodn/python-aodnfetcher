@@ -1,6 +1,29 @@
 # python-aodnfetcher
 Multi-protocol artifact fetcher library/utility
 
+## Installation
+
+Note: it is recommended to install this in a [virtualenv](https://virtualenv.pypa.io/en/stable/).
+
+### Install directly from GitHub
+```bash
+$ pip install git+https://github.com/aodn/python-aodnfetcher.git@master
+```
+
+### Install in 'editable' mode from local directory
+```bash
+git clone https://github.com/aodn/python-aodnfetcher.git
+cd python-aodnfetcher
+pip install -e .
+```
+
+### Create a wheel package
+```bash
+git clone https://github.com/aodn/python-aodnfetcher.git
+cd python-aodnfetcher
+python setup.py bdist_wheel
+```
+
 ## Usage
 
 ### Commandline interface

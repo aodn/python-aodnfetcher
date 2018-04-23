@@ -78,7 +78,7 @@ class AbstractFetcherDownloader(object):
         LOGGER.info("creating FetcherDownloader of type '{t}'".format(t=self.__class__.__name__))
 
     @abc.abstractmethod
-    def get_handle(self, fetcher_):
+    def get_handle(self, file_fetcher):
         pass
 
 
@@ -112,50 +112,50 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
             index = {}
         return index
 
-    def file_is_current(self, fetcher_):
-        if not fetcher_.unique_id:
+    def file_is_current(self, file_fetcher):
+        if not file_fetcher.unique_id:
             return False
-        cache_path = self._get_cache_path(fetcher_)
-        return os.path.exists(cache_path) and fetcher_.unique_id == self.get_cached_object_id(fetcher_)
+        cache_path = self._get_cache_path(file_fetcher)
+        return os.path.exists(cache_path) and file_fetcher.unique_id == self.get_cached_object_id(file_fetcher)
 
-    def get_cached_object_id(self, fetcher_):
-        cache_key = self.get_cache_key(fetcher_)
+    def get_cached_object_id(self, file_fetcher):
+        cache_key = self.get_cache_key(file_fetcher)
         obj = self.index.get(cache_key, {})
         return obj.get('id')
 
     @staticmethod
-    def get_cache_key(fetcher_):
-        return sha256(fetcher_.real_url).hexdigest()
+    def get_cache_key(file_fetcher):
+        return sha256(file_fetcher.real_url).hexdigest()
 
-    def get_handle(self, fetcher_):
-        cache_path = self._get_cache_path(fetcher_)
-        if self.file_is_current(fetcher_):
-            LOGGER.info("'{artifact}' is current, using cached file".format(artifact=fetcher_.real_url))
+    def get_handle(self, file_fetcher):
+        cache_path = self._get_cache_path(file_fetcher)
+        if self.file_is_current(file_fetcher):
+            LOGGER.info("'{artifact}' is current, using cached file".format(artifact=file_fetcher.real_url))
         else:
-            LOGGER.info("'{artifact}' is missing or stale, downloading".format(artifact=fetcher_.real_url))
-            self._put_file(fetcher_)
+            LOGGER.info("'{artifact}' is missing or stale, downloading".format(artifact=file_fetcher.real_url))
+            self._put_file(file_fetcher)
         return open(cache_path, mode='rb')
 
-    def _get_cache_path(self, fetcher_):
-        return os.path.join(self.cache_dir, self.get_cache_key(fetcher_))
+    def _get_cache_path(self, file_fetcher):
+        return os.path.join(self.cache_dir, self.get_cache_key(file_fetcher))
 
-    def _put_file(self, fetcher_):
-        cache_path = self._get_cache_path(fetcher_)
+    def _put_file(self, file_fetcher):
+        cache_path = self._get_cache_path(file_fetcher)
         with open(cache_path, 'wb') as out_file:
-            copyfileobj(fetcher_.handle, out_file)
-        self._update_index(fetcher_)
+            copyfileobj(file_fetcher.handle, out_file)
+        self._update_index(file_fetcher)
 
-    def _update_index(self, fetcher_):
-        cache_key = self.get_cache_key(fetcher_)
+    def _update_index(self, file_fetcher):
+        cache_key = self.get_cache_key(file_fetcher)
         index = dict(self.index)
-        index[cache_key] = {'id': fetcher_.unique_id, 'url': fetcher_.real_url}
+        index[cache_key] = {'id': file_fetcher.unique_id, 'url': file_fetcher.real_url}
         with open(self.cache_index_file, 'w') as f:
             json.dump(index, f)
 
 
 class FetcherDirectDownloader(AbstractFetcherDownloader):
-    def get_handle(self, fetcher_):
-        return fetcher_.handle
+    def get_handle(self, file_fetcher):
+        return file_fetcher.handle
 
 
 class AbstractFileFetcher(object):

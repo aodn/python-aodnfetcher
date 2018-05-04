@@ -70,17 +70,22 @@ http://www.example.com/artifact.zip
 https://www.example.com/artifact.zip
 s3://mybucket/prefix/artifact.zip
 jenkins://mybucket/myjob (downloads WAR artifact from latest build of job)
+jenkins://mybucket/myjob?pattern=^.*\.whl$ (downloads artifact matching given pattern from latest build of job)
 ```
 
 ```bash
 $ aodnfetcher https://github.com/aodn/aodn-portal/archive/master.zip \
 jenkins://imos-binary/portal_4_prod \
-s3://imos-binary/static/talend/stels_mdb_pack.zip \
-| python -m json.tool
+jenkins://imos-binary/cc_plugin_imos_prod?pattern=^.*\.whl$ \
+s3://imos-binary/static/talend/stels_mdb_pack.zip | python -m json.tool
 {
     "https://github.com/aodn/aodn-portal/archive/master.zip": {
         "local_file": "master.zip",
         "real_url": "https://github.com/aodn/aodn-portal/archive/master.zip"
+    },
+    "jenkins://imos-binary/cc_plugin_imos_prod?pattern=^.*.whl$": {
+        "local_file": "cc_plugin_imos-1.2.1-py2-none-any.whl",
+        "real_url": "s3://imos-binary/jobs/cc_plugin_imos_prod/13/cc_plugin_imos-1.2.1-py2-none-any.whl"
     },
     "jenkins://imos-binary/portal_4_prod": {
         "local_file": "aodn-portal-4.37.1-production.war",
@@ -91,6 +96,7 @@ s3://imos-binary/static/talend/stels_mdb_pack.zip \
         "real_url": "s3://imos-binary/static/talend/stels_mdb_pack.zip"
     }
 }
+
 
 $ ls -l
 total 55768

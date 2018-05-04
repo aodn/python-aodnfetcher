@@ -9,6 +9,18 @@ import aodnfetcher
 import aodnfetcher.fetcherlib
 
 
+def get_mocked_jenkins_fetcher(url):
+    with mock.patch('aodnfetcher.fetcherlib.boto3'):
+        fetcher = aodnfetcher.fetcherlib.JenkinsS3Fetcher(urlparse(url))
+    return fetcher
+
+
+def get_mocked_s3_fetcher(url):
+    with mock.patch('aodnfetcher.fetcherlib.boto3'):
+        fetcher = aodnfetcher.fetcherlib.S3Fetcher(urlparse(url))
+    return fetcher
+
+
 class TestFetcherLib(unittest.TestCase):
     @mock.patch('aodnfetcher.fetcherlib.os')
     def test_caching_downloader(self, mock_os):
@@ -128,8 +140,8 @@ class TestLocalFileFetcher(unittest.TestCase):
 class TestS3Fetcher(unittest.TestCase):
     def setUp(self):
         self.url = 's3://bucket/key/path'
-        with mock.patch('aodnfetcher.fetcherlib.boto3'):
-            self.fetcher = aodnfetcher.fetcherlib.S3Fetcher(urlparse(self.url))
+        self.fetcher = get_mocked_s3_fetcher(self.url)
+
         self.mock_content = 'mock content'
         self.mock_etag = 'abc123'
         mock_body = mock.MagicMock()
@@ -164,8 +176,8 @@ class TestS3Fetcher(unittest.TestCase):
 class TestJenkinsS3Fetcher(unittest.TestCase):
     def setUp(self):
         self.url = 'jenkins://bucket/job'
-        with mock.patch('aodnfetcher.fetcherlib.boto3'):
-            self.fetcher = aodnfetcher.fetcherlib.JenkinsS3Fetcher(urlparse(self.url))
+        self.fetcher = get_mocked_jenkins_fetcher(self.url)
+
         self.mock_content = 'mock content'
         self.mock_etag = 'abc123'
         mock_body = mock.MagicMock()
@@ -209,3 +221,13 @@ class TestJenkinsS3Fetcher(unittest.TestCase):
         self.fetcher.s3_client.list_objects_v2.return_value = {'Contents': [{'Key': 'jobs/job/3/path3.txt'}]}
         with self.assertRaises(ValueError):
             _ = self.fetcher.object
+
+    def test_custom_jenkins_pattern(self):
+        url = 'jenkins://bucket/job?pattern=^.*\.whl$'
+        fetcher = get_mocked_jenkins_fetcher(url)
+        fetcher.s3_client.list_objects_v2.return_value = {'Contents': [
+            {'Key': 'jobs/job/1/path1.war'},
+            {'Key': 'jobs/job/2/path2.whl'}
+        ]}
+
+        self.assertEqual(fetcher.real_url, 's3://bucket/jobs/job/2/path2.whl')

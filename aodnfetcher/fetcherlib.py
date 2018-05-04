@@ -8,7 +8,7 @@ import urllib2
 from functools import partial
 from hashlib import sha256
 from shutil import copyfileobj
-from urlparse import ParseResult, urlparse, urlunparse
+from urlparse import ParseResult, parse_qs, urlparse, urlunparse
 
 import boto3
 import botocore.config
@@ -313,12 +313,16 @@ class JenkinsS3Fetcher(AbstractFileFetcher):
     """
     key_parse_pattern = re.compile(r"^jobs/(?P<job_name>[^/]+)/(?P<build_number>[^/]+)/(?P<basename>.*)$")
 
-    def __init__(self, parsed_url, filename_pattern='^.*\.war$', authenticated=False):
+    def __init__(self, parsed_url, authenticated=False):
         super(JenkinsS3Fetcher, self).__init__(parsed_url)
 
         self.bucket = parsed_url.netloc
         self.job_name = parsed_url.path.lstrip('/')
-        self.filename_pattern = filename_pattern
+
+        try:
+            self.filename_pattern = parse_qs(parsed_url.query)['pattern'][0]
+        except (KeyError, IndexError):
+            self.filename_pattern = r'^.*\.war$'
 
         self.s3_client = S3Fetcher.get_client(authenticated=authenticated)
 

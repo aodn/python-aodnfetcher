@@ -32,8 +32,8 @@ The command line exposes the fetcher functionality for use interactively, or to 
 
 In order to be useful for integrating with non-Python languages (e.g. Bash/Ruby), the utility outputs a JSON document
 which can be parsed and used to programmatically determine the path to the file(s) that were downloaded by the call to
-the program. This is required in particular by the "jenkins://" pseudo protocol, in which case the real name of the file
-is not known until it is resolved by the fetcher code.
+the program. This is required in particular by the "jenkins://" and "schemabackup://" pseudo protocols, in which case
+the "real" path to the file is not known until it is resolved by the fetcher code.
 
 ```bash
 $ aodnfetcher --help
@@ -71,6 +71,9 @@ https://www.example.com/artifact.zip
 s3://mybucket/prefix/artifact.zip
 jenkins://mybucket/myjob (downloads WAR artifact from latest build of job)
 jenkins://mybucket/myjob?pattern=^.*\.whl$ (downloads artifact matching given pattern from latest build of job)
+schemabackup://mybucket/myhost/mydatabase/myschema (downloads latest backup timestamp)
+schemabackup://mybucket/myhost/mydatabase/myschema?timestamp=YYYY.MM.DD.hh.mm.ss (downloads the backup with the corresponding timestamp)
+
 ```
 
 ```bash

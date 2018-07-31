@@ -40,6 +40,9 @@ def main():
                                      https://www.example.com/artifact.zip
                                      s3://mybucket/prefix/artifact.zip
                                      jenkins://mybucket/myjob (downloads WAR artifact from latest build of job)
+                                     jenkins://mybucket/myjob?pattern=^.*\.whl$ (downloads artifact matching given pattern from latest build of job)
+                                     schemabackup://mybucket/myhost/mydatabase/myschema (downloads latest backup timestamp)
+                                     schemabackup://mybucket/myhost/mydatabase/myschema?timestamp=YYYY.MM.DD.hh.mm.ss (downloads the backup with the corresponding timestamp)
                                      '''))
     parser.add_argument('artifact', nargs='+', help='artifact URL to download')
     parser.add_argument('--authenticated', '-a', action='store_true',

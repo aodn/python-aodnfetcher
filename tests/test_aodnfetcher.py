@@ -15,6 +15,12 @@ def get_mocked_jenkins_fetcher(url):
     return fetcher
 
 
+def get_mocked_schemabackup_fetcher(url):
+    with mock.patch('aodnfetcher.fetcherlib.boto3'):
+        fetcher = aodnfetcher.fetcherlib.SchemaBackupS3Fetcher(urlparse(url))
+    return fetcher
+
+
 def get_mocked_s3_fetcher(url):
     with mock.patch('aodnfetcher.fetcherlib.boto3'):
         fetcher = aodnfetcher.fetcherlib.S3Fetcher(urlparse(url))
@@ -63,6 +69,16 @@ class TestFetcherLib(unittest.TestCase):
         self.assertIsInstance(fetcher, aodnfetcher.fetcherlib.JenkinsS3Fetcher)
         self.assertEqual(fetcher.bucket, 'bucket')
         self.assertEqual(fetcher.job_name, 'job')
+
+    @mock.patch('aodnfetcher.fetcherlib.boto3')
+    @mock.patch('aodnfetcher.fetcherlib.botocore')
+    def test_schemabackup_scheme(self, mock_botocore, mock_boto3):
+        fetcher = aodnfetcher.fetcher('schemabackup://bucket/host/database/schema')
+        self.assertIsInstance(fetcher, aodnfetcher.fetcherlib.SchemaBackupS3Fetcher)
+        self.assertEqual(fetcher.bucket, 'bucket')
+        self.assertEqual(fetcher.host, 'host')
+        self.assertEqual(fetcher.database, 'database')
+        self.assertEqual(fetcher.schema, 'schema')
 
     @mock.patch('aodnfetcher.fetcherlib.boto3')
     @mock.patch('aodnfetcher.fetcherlib.botocore')
@@ -214,13 +230,15 @@ class TestJenkinsS3Fetcher(unittest.TestCase):
 
     def test_no_builds(self):
         self.fetcher.s3_client.list_objects_v2.return_value = {'Contents': []}
-        with self.assertRaises(ValueError):
+        with self.assertRaises(aodnfetcher.fetcherlib.KeyResolutionError) as cm:
             _ = self.fetcher.object
+        self.assertEqual(cm.exception.reason_code, 'NO_RESULTS')
 
     def test_no_matching_builds(self):
         self.fetcher.s3_client.list_objects_v2.return_value = {'Contents': [{'Key': 'jobs/job/3/path3.txt'}]}
-        with self.assertRaises(ValueError):
+        with self.assertRaises(aodnfetcher.fetcherlib.KeyResolutionError) as cm:
             _ = self.fetcher.object
+        self.assertEqual(cm.exception.reason_code, 'NO_MATCHING_BUILDS')
 
     def test_custom_jenkins_pattern(self):
         url = 'jenkins://bucket/job?pattern=^.*\.whl$'
@@ -231,3 +249,98 @@ class TestJenkinsS3Fetcher(unittest.TestCase):
         ]}
 
         self.assertEqual(fetcher.real_url, 's3://bucket/jobs/job/2/path2.whl')
+
+
+class TestPostgresSchemaBackupS3Fetcher(unittest.TestCase):
+    def setUp(self):
+        self.list_objects_side_effect = [
+            # host query
+            {
+                'CommonPrefixes': [{'Prefix': 'backups/test-host/'},
+                                   {'Prefix': 'backups/test-host-2/'}]
+            },
+            # timestamp query
+            {
+                'CommonPrefixes': [{'Prefix': 'backups/test-host/pgsql/2018.07.31.04.22.11/'},
+                                   {'Prefix': 'backups/test-host/pgsql/2018.07.20.04.30.30/'},
+                                   {'Prefix': 'backups/test-host/pgsql/2018.07.30.05.23.45/'}]
+            }
+        ]
+
+    def test_latest_dump_explicit(self):
+        url = 'schemabackup://test-bucket/test-host/test-database/test-schema?timestamp=LATEST'
+        fetcher = get_mocked_schemabackup_fetcher(url)
+
+        fetcher.s3_client.list_objects_v2.side_effect = self.list_objects_side_effect
+
+        expected_url = 's3://test-bucket/backups/test-host/pgsql/2018.07.31.04.22.11/test-database/test-schema.dump'
+        self.assertEqual(fetcher.real_url, expected_url)
+
+    def test_latest_dump_implicit(self):
+        url = 'schemabackup://test-bucket/test-host/test-database/test-schema'
+        fetcher = get_mocked_schemabackup_fetcher(url)
+
+        fetcher.s3_client.list_objects_v2.side_effect = self.list_objects_side_effect
+
+        expected_url = 's3://test-bucket/backups/test-host/pgsql/2018.07.31.04.22.11/test-database/test-schema.dump'
+        self.assertEqual(fetcher.real_url, expected_url)
+
+    def test_with_invalid_host(self):
+        url = 'schemabackup://test-bucket/invalid-test-host/test-database/test-schema?timestamp=2011.01.01.04.30.30'
+        fetcher = get_mocked_schemabackup_fetcher(url)
+
+        fetcher.s3_client.list_objects_v2.side_effect = self.list_objects_side_effect
+
+        with self.assertRaises(aodnfetcher.fetcherlib.KeyResolutionError) as cm:
+            _ = fetcher.object
+        self.assertEqual(cm.exception.reason_code, 'HOST_NOT_FOUND')
+
+    def test_with_timestamp(self):
+        url = 'schemabackup://test-bucket/test-host/test-database/test-schema?timestamp=2018.07.20.04.30.30'
+        fetcher = get_mocked_schemabackup_fetcher(url)
+
+        fetcher.s3_client.list_objects_v2.side_effect = self.list_objects_side_effect
+
+        expected_url = 's3://test-bucket/backups/test-host/pgsql/2018.07.20.04.30.30/test-database/test-schema.dump'
+        self.assertEqual(fetcher.real_url, expected_url)
+
+    def test_with_invalid_timestamp(self):
+        url = 'schemabackup://test-bucket/test-host/test-database/test-schema?timestamp=2011.01.01.04.30.30'
+        fetcher = get_mocked_schemabackup_fetcher(url)
+
+        fetcher.s3_client.list_objects_v2.side_effect = self.list_objects_side_effect
+
+        with self.assertRaises(aodnfetcher.fetcherlib.KeyResolutionError) as cm:
+            _ = fetcher.object
+        self.assertEqual(cm.exception.reason_code, 'TIMESTAMP_NOT_FOUND')
+
+    def test_with_no_timestamps(self):
+        url = 'schemabackup://test-bucket/test-host-2/test-database/test-schema?timestamp=2011.01.01.04.30.30'
+        fetcher = get_mocked_schemabackup_fetcher(url)
+
+        self.list_objects_side_effect[1] = {
+            'CommonPrefixes': []
+        }
+
+        fetcher.s3_client.list_objects_v2.side_effect = self.list_objects_side_effect
+
+        with self.assertRaises(aodnfetcher.fetcherlib.KeyResolutionError) as cm:
+            _ = fetcher.object
+        self.assertEqual(cm.exception.reason_code, 'NO_TIMESTAMPS')
+
+    def test_with_timestamp_missing_schema(self):
+        url = 'schemabackup://test-bucket/test-host/test-database/dummy_schema?timestamp=2018.07.20.04.30.30'
+        fetcher = get_mocked_schemabackup_fetcher(url)
+
+        fetcher.s3_client.list_objects_v2.side_effect = self.list_objects_side_effect
+        dummy_error = botocore.exceptions.ClientError({'Error': {'Code': 'NoSuchKey'}}, 'GetObject')
+        fetcher.s3_client.get_object.side_effect = dummy_error
+
+        with self.assertRaises(aodnfetcher.fetcherlib.KeyResolutionError) as cm:
+            _ = fetcher.object
+        self.assertEqual(cm.exception.reason_code, 'SCHEMA_NOT_FOUND')
+
+    def test_invalid_url(self):
+        url = 'schemabackup://test-bucket/test-schema?timestamp=2018.07.20.04.30.30'
+        with self.assertRaises(ValueError):
+            _ = get_mocked_schemabackup_fetcher(url)

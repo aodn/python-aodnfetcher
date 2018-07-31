@@ -25,7 +25,8 @@ __all__ = [
     'HTTPFetcher',
     'LocalFileFetcher',
     'S3Fetcher',
-    'JenkinsS3Fetcher'
+    'JenkinsS3Fetcher',
+    'SchemaBackupS3Fetcher'
 ]
 
 LOGGER = logging.getLogger('aodnfetcher')
@@ -37,6 +38,17 @@ class AuthenticationError(Exception):
 
 class InvalidArtifactError(Exception):
     pass
+
+
+class KeyResolutionError(Exception):
+    def __init__(self, reason_code, message):
+        self.reason_code = reason_code
+        self.message = message
+
+    def __repr__(self):
+        return "{}(message=\"{}\", reason_code=\"{}\")".format(self.__class__.__name__, self.message, self.reason_code)
+
+    __str__ = __repr__
 
 
 def fetcher(artifact, authenticated=False):
@@ -51,6 +63,8 @@ def fetcher(artifact, authenticated=False):
 
     if parsed_url.scheme == 'jenkins':
         return JenkinsS3Fetcher(parsed_url=parsed_url, authenticated=authenticated)
+    elif parsed_url.scheme == 'schemabackup':
+        return SchemaBackupS3Fetcher(parsed_url=parsed_url, authenticated=authenticated)
     elif parsed_url.scheme in ('http', 'https'):
         return HTTPFetcher(parsed_url=parsed_url)
     elif parsed_url.scheme == 's3':
@@ -307,37 +321,19 @@ class S3Fetcher(AbstractFileFetcher):
         return boto3.client('s3', **s3_client_kwargs)
 
 
-class JenkinsS3Fetcher(AbstractFileFetcher):
-    """Fetch from a Jenkins managed S3 artifact bucket, resolving the latest artifact for the given job, and using Etag
-        header to provide identifier for cache validation
-    """
-    key_parse_pattern = re.compile(r"^jobs/(?P<job_name>[^/]+)/(?P<build_number>[^/]+)/(?P<basename>.*)$")
-
+class BaseResolvingS3Fetcher(AbstractFileFetcher):
     def __init__(self, parsed_url, authenticated=False):
-        super(JenkinsS3Fetcher, self).__init__(parsed_url)
+        super(BaseResolvingS3Fetcher, self).__init__(parsed_url)
+        self.authenticated = authenticated
 
         self.bucket = parsed_url.netloc
-        self.job_name = parsed_url.path.lstrip('/')
-
-        try:
-            self.filename_pattern = parse_qs(parsed_url.query)['pattern'][0]
-        except (KeyError, IndexError):
-            self.filename_pattern = r'^.*\.war$'
 
         self.s3_client = S3Fetcher.get_client(authenticated=authenticated)
 
-        self._all_builds = None
-        self._key = None
-        self._object = None
         self._fetcher = None
+        self._handle = None
+        self._key = None
         self._real_parse_result = None
-
-    @property
-    def all_builds(self):
-        if self._all_builds is None:
-            self._all_builds = self.s3_client.list_objects_v2(Bucket=self.bucket,
-                                                              Prefix="jobs/{}".format(self.job_name))
-        return self._all_builds
 
     @property
     def fetcher(self):
@@ -348,26 +344,6 @@ class JenkinsS3Fetcher(AbstractFileFetcher):
         if self._fetcher is None:
             self._fetcher = S3Fetcher(parsed_url=self.real_parsed_url, s3_client=self.s3_client)
         return self._fetcher
-
-    @property
-    def real_url(self):
-        return urlunparse(self.real_parsed_url)
-
-    @property
-    def handle(self):
-        if self._handle is None:
-            self._handle = self.fetcher.handle
-        return self._handle
-
-    @property
-    def path(self):
-        """Unlike other Fetchers, path is a lazy property, because it is not known at the time of initialisation
-
-        :return: dynamically determined key
-        """
-        if self._key is None:
-            self._key = self._get_key()
-        return self._key
 
     @property
     def real_parsed_url(self):
@@ -381,21 +357,74 @@ class JenkinsS3Fetcher(AbstractFileFetcher):
         return self._real_parse_result
 
     @property
+    def real_url(self):
+        return urlunparse(self.real_parsed_url)
+
+    @property
+    def handle(self):
+        if self._handle is None:
+            self._handle = self.fetcher.handle
+        return self._handle
+
+    @property
     def object(self):
         return self.fetcher.object
+
+    @property
+    def path(self):
+        """Unlike other Fetchers, path is a lazy property, because it is not known at the time of initialisation
+
+        :return: dynamically determined key
+        """
+        if self._key is None:
+            self._key = self._get_key()
+        return self._key
 
     @property
     def unique_id(self):
         return self.object['ResponseMetadata']['HTTPHeaders']['etag']
 
+    @abc.abstractmethod
+    def _get_key(self):
+        pass
+
+
+class JenkinsS3Fetcher(BaseResolvingS3Fetcher):
+    """Fetch from a Jenkins managed S3 artifact bucket, resolving the latest artifact for the given job, and using Etag
+        header to provide identifier for cache validation
+    """
+    key_parse_pattern = re.compile(r"^jobs/(?P<job_name>[^/]+)/(?P<build_number>[^/]+)/(?P<basename>.*)$")
+
+    def __init__(self, parsed_url, authenticated=False):
+        super(JenkinsS3Fetcher, self).__init__(parsed_url, authenticated)
+
+        self.job_name = parsed_url.path.lstrip('/')
+
+        try:
+            self.filename_pattern = parse_qs(parsed_url.query)['pattern'][0]
+        except (KeyError, IndexError):
+            self.filename_pattern = r'^.*\.war$'
+
+        self._all_builds = None
+
+    @property
+    def all_builds(self):
+        if self._all_builds is None:
+            self._all_builds = self.s3_client.list_objects_v2(Bucket=self.bucket,
+                                                              Prefix="jobs/{}".format(self.job_name))
+        return self._all_builds
+
     def _get_key(self):
         if not self.all_builds.get('Contents'):
-            raise ValueError("job '{s.job_name}' was invalid or returned no builds".format(s=self))
+            raise KeyResolutionError('NO_RESULTS',
+                                     "job '{s.job_name}' was invalid or returned no builds".format(s=self))
 
         try:
             latest = self._get_matching_builds()[-1]
         except IndexError:
-            raise ValueError("no builds found for '{s.job_name}' matching '{s.filename_pattern}'".format(s=self))
+            raise KeyResolutionError('NO_MATCHING_BUILDS',
+                                     "no builds found for '{s.job_name}' matching '{s.filename_pattern}'".format(
+                                         s=self))
         return "jobs/{job_name}/{build_number}/{basename}".format(**latest)
 
     def _get_matching_builds(self):
@@ -403,3 +432,70 @@ class JenkinsS3Fetcher(AbstractFileFetcher):
                          re.match(self.filename_pattern, a['Key']))
         sorted_keys = sorted(matching_keys, key=lambda p: int(p['build_number']))
         return sorted_keys
+
+
+class SchemaBackupS3Fetcher(BaseResolvingS3Fetcher):
+    def __init__(self, parsed_url, authenticated=True):
+        super(SchemaBackupS3Fetcher, self).__init__(parsed_url, authenticated)
+
+        components = parsed_url.path.lstrip('/').split('/')
+        if len(components) != 3:
+            raise ValueError('URL must be in the format: schemabackup://bucket/host/database/schema')
+        self.host, self.database, self.schema = components
+
+        try:
+            self.timestamp = parse_qs(parsed_url.query)['timestamp'][0]
+        except (KeyError, IndexError):
+            self.timestamp = 'LATEST'
+
+    def _get_key(self):
+        host_prefix_components = ['backups', '']
+        host_prefix = os.path.join(*host_prefix_components)
+
+        host_response = self.s3_client.list_objects_v2(Bucket=self.bucket, Prefix=host_prefix, Delimiter='/')
+
+        all_hosts = [os.path.relpath(c['Prefix'], host_prefix)
+                     for c in host_response.get('CommonPrefixes', [])
+                     if c['Prefix'].startswith(host_prefix)]
+
+        if self.host not in all_hosts:
+            raise KeyResolutionError('HOST_NOT_FOUND',
+                                     "host '{h}' not found in bucket '{b}'.".format(h=self.host, b=self.bucket))
+
+        base_prefix = os.path.join(host_prefix, self.host, 'pgsql', '')
+
+        timestamps_response = self.s3_client.list_objects_v2(Bucket=self.bucket, Prefix=base_prefix, Delimiter='/')
+
+        all_timestamps = sorted(os.path.relpath(c['Prefix'], base_prefix)
+                                for c in timestamps_response.get('CommonPrefixes', [])
+                                if c['Prefix'].startswith(base_prefix))
+
+        if not all_timestamps:
+            raise KeyResolutionError('NO_TIMESTAMPS',
+                                     "no candidate timestamps found in bucket '{b}'.".format(b=self.bucket))
+
+        if self.timestamp == 'LATEST':
+            selected_timestamp = all_timestamps[-1]
+        elif self.timestamp in all_timestamps:
+            selected_timestamp = self.timestamp
+        else:
+            raise KeyResolutionError('TIMESTAMP_NOT_FOUND',
+                                     "timestamp '{t}' not found in bucket '{b}'. Available timestamp candidates: {c}".format(
+                                         t=self.timestamp,
+                                         b=self.bucket,
+                                         c=all_timestamps))
+
+        key_components = [selected_timestamp, self.database, "{schema}.dump".format(schema=self.schema)]
+        key_name = os.path.join(base_prefix, *key_components)
+
+        try:
+            self.s3_client.get_object(Bucket=self.bucket, Key=key_name)
+        except botocore.exceptions.ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                raise KeyResolutionError('SCHEMA_NOT_FOUND',
+                                         "schema backup '{k}' not found in bucket under timestamp '{t}'".format(
+                                             k=key_name,
+                                             t=self.timestamp))
+            raise
+
+        return key_name

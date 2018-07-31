@@ -75,7 +75,7 @@ def main():
             if args.outfile is not sys.stdout:
                 args.outfile.close()
                 os.unlink(args.outfile.name)
-            sys.exit(e)
+            sys.exit(str(e))
 
         filename = os.path.basename(artifact_fetcher.real_url)
 

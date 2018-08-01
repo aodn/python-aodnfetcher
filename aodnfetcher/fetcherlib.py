@@ -130,7 +130,7 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
 
         try:
             os.mkdir(cache_dir)
-        except OSError as e:
+        except OSError as e:  # pragma: no cover
             if e.errno != errno.EEXIST:
                 raise
 

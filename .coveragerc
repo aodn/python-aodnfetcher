@@ -1,14 +1,19 @@
 [run]
 branch = True
 source = aodnfetcher
+omit =
+    tests/*
+    aodnfetcher/__init__.py
+    aodnfetcher/cli.py
 
 [report]
 exclude_lines =
+    @abc.abstractmethod
+    @abc.abstractproperty
+    raise
+    def __repr__
     if self.debug:
     pragma: no cover
     raise NotImplementedError
     if __name__ == .__main__.:
 ignore_errors = True
-omit =
-    tests/*
-    cli.py

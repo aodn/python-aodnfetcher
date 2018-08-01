@@ -1,7 +1,6 @@
 import os
 import unittest
 from io import StringIO
-from urlparse import urlparse
 
 import botocore.exceptions
 import mock
@@ -12,19 +11,19 @@ import aodnfetcher.fetcherlib
 
 def get_mocked_jenkins_fetcher(url):
     with mock.patch('aodnfetcher.fetcherlib.boto3'):
-        fetcher = aodnfetcher.fetcherlib.JenkinsS3Fetcher(urlparse(url))
+        fetcher = aodnfetcher.fetcherlib.JenkinsS3Fetcher(aodnfetcher.fetcherlib.urlparse(url))
     return fetcher
 
 
 def get_mocked_schemabackup_fetcher(url):
     with mock.patch('aodnfetcher.fetcherlib.boto3'):
-        fetcher = aodnfetcher.fetcherlib.SchemaBackupS3Fetcher(urlparse(url))
+        fetcher = aodnfetcher.fetcherlib.SchemaBackupS3Fetcher(aodnfetcher.fetcherlib.urlparse(url))
     return fetcher
 
 
 def get_mocked_s3_fetcher(url):
     with mock.patch('aodnfetcher.fetcherlib.boto3'):
-        fetcher = aodnfetcher.fetcherlib.S3Fetcher(urlparse(url))
+        fetcher = aodnfetcher.fetcherlib.S3Fetcher(aodnfetcher.fetcherlib.urlparse(url))
     return fetcher
 
 
@@ -110,7 +109,7 @@ class TestFetcherDirectDownloader(unittest.TestCase):
 class TestHTTPFetcher(unittest.TestCase):
     def setUp(self):
         self.url = 'http://www.example.com'
-        self.fetcher = aodnfetcher.fetcherlib.HTTPFetcher(urlparse(self.url))
+        self.fetcher = aodnfetcher.fetcherlib.HTTPFetcher(aodnfetcher.fetcherlib.urlparse(self.url))
         self.mock_content = u'mock content'
         self.mock_etag = 'abc123'
 
@@ -133,8 +132,8 @@ class TestHTTPFetcher(unittest.TestCase):
 class TestLocalFileFetcher(unittest.TestCase):
     def setUp(self):
         self.url = 'file://test/file'
-        self.fetcher = aodnfetcher.fetcherlib.LocalFileFetcher(urlparse(self.url))
-        self.mock_content = 'mock content'
+        self.fetcher = aodnfetcher.fetcherlib.LocalFileFetcher(aodnfetcher.fetcherlib.urlparse(self.url))
+        self.mock_content = b'mock content'
         self.mock_file = mock.mock_open(read_data=self.mock_content)
 
     def test_handle(self):

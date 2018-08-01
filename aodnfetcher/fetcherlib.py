@@ -7,13 +7,17 @@ import re
 from functools import partial
 from hashlib import sha256
 from shutil import copyfileobj
-from urlparse import ParseResult, parse_qs, urlparse, urlunparse
 
 import boto3
 import botocore.config
 import botocore.exceptions
 import requests
 from botocore import UNSIGNED
+
+try:
+    from urllib.parse import ParseResult, parse_qs, urlparse, urlunparse
+except ImportError:
+    from urlparse import ParseResult, parse_qs, urlparse, urlunparse
 
 __all__ = [
     'fetcher',

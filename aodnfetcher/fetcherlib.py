@@ -55,6 +55,19 @@ class KeyResolutionError(Exception):
     __str__ = __repr__
 
 
+def get_file_hash(filepath):
+    """Get the SHA256 hash value (hexdigest) of a file
+
+    :param filepath: path to the file being hashed
+    :return: SHA256 hash of the file
+    """
+    hasher = sha256()
+    with open(filepath, 'rb') as f:
+        for block in iter(partial(f.read, 65536), b''):
+            hasher.update(block)
+    return hasher.hexdigest()
+
+
 def fetcher(artifact, authenticated=False):
     """Factory to return an appropriate AbstractFileFetcher subclass for the given artifact string, or raise an
     exception if URL scheme is unknown or invalid
@@ -261,11 +274,7 @@ class LocalFileFetcher(AbstractFileFetcher):
 
     @property
     def unique_id(self):
-        hasher = sha256()
-        with open(self.path, 'rb') as f:
-            for block in iter(partial(f.read, 65536), b''):
-                hasher.update(block)
-        return hasher.hexdigest()
+        return get_file_hash(self.path)
 
 
 class S3Fetcher(AbstractFileFetcher):

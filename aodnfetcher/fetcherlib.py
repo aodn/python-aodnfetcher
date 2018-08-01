@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import re
-import urllib2
 from functools import partial
 from hashlib import sha256
 from shutil import copyfileobj
@@ -13,6 +12,7 @@ from urlparse import ParseResult, parse_qs, urlparse, urlunparse
 import boto3
 import botocore.config
 import botocore.exceptions
+import requests
 from botocore import UNSIGNED
 
 __all__ = [
@@ -196,13 +196,6 @@ class AbstractFileFetcher(object):
         pass
 
 
-class DefaultErrorHandler(urllib2.HTTPDefaultErrorHandler):
-    def http_error_default(self, req, fp, code, msg, headers):
-        result = urllib2.HTTPError(req.get_full_url(), code, msg, headers, fp)
-        result.status = code
-        return result
-
-
 class HTTPFetcher(AbstractFileFetcher):
     """Fetch from a regular HTTP URL, using Etag header (if available) to provide identifier for cache validation
     """
@@ -218,21 +211,22 @@ class HTTPFetcher(AbstractFileFetcher):
         return urlunparse(self.parsed_url)
 
     @property
-    def stream(self):
+    def response(self):
         if self._stream is None:
-            opener = urllib2.build_opener(DefaultErrorHandler())
-            self._stream = opener.open(urllib2.Request(self.real_url))
+            r = requests.get(self.real_url, stream=True)
+            r.raise_for_status()
+            self._stream = r
         return self._stream
 
     @property
     def handle(self):
         if self._handle is None:
-            self._handle = self.stream.fp
+            self._handle = self.response.raw
         return self._handle
 
     @property
     def unique_id(self):
-        return self.stream.headers.get('ETag')
+        return self.response.headers.get('ETag')
 
 
 class LocalFileFetcher(AbstractFileFetcher):

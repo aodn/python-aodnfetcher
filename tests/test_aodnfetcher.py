@@ -1,5 +1,6 @@
 import os
 import unittest
+from io import StringIO
 from urlparse import urlparse
 
 import botocore.exceptions
@@ -37,13 +38,13 @@ class TestFetcherLib(unittest.TestCase):
         downloader = aodnfetcher.fetcher_downloader()
         self.assertIsInstance(downloader, aodnfetcher.fetcherlib.FetcherDirectDownloader)
 
-    @mock.patch('aodnfetcher.fetcherlib.urllib2')
-    def test_http_scheme(self, mock_urllib2):
+    @mock.patch('aodnfetcher.fetcherlib.requests')
+    def test_http_scheme(self, mock_requests):
         fetcher = aodnfetcher.fetcher('http://www.example.com')
         self.assertIsInstance(fetcher, aodnfetcher.fetcherlib.HTTPFetcher)
 
-    @mock.patch('aodnfetcher.fetcherlib.urllib2')
-    def test_https_scheme(self, mock_urllib2):
+    @mock.patch('aodnfetcher.fetcherlib.requests')
+    def test_https_scheme(self, mock_requests):
         fetcher = aodnfetcher.fetcher('https://www.example.com')
         self.assertIsInstance(fetcher, aodnfetcher.fetcherlib.HTTPFetcher)
 
@@ -110,21 +111,21 @@ class TestHTTPFetcher(unittest.TestCase):
     def setUp(self):
         self.url = 'http://www.example.com'
         self.fetcher = aodnfetcher.fetcherlib.HTTPFetcher(urlparse(self.url))
-        self.mock_content = 'mock content'
+        self.mock_content = u'mock content'
         self.mock_etag = 'abc123'
 
-    @mock.patch('aodnfetcher.fetcherlib.urllib2')
-    def test_handle(self, mock_urllib2):
-        mock_urllib2.build_opener().open().fp.read.return_value = self.mock_content
+    @mock.patch('aodnfetcher.fetcherlib.requests')
+    def test_handle(self, mock_requests):
+        mock_requests.get().raw = StringIO(self.mock_content)
         content = self.fetcher.handle.read()
         self.assertEqual(content, self.mock_content)
 
     def test_real_url(self):
         self.assertEqual(self.fetcher.real_url, self.url)
 
-    @mock.patch('aodnfetcher.fetcherlib.urllib2')
-    def test_unique_id(self, mock_urllib2):
-        mock_urllib2.build_opener().open().headers.get.return_value = self.mock_etag
+    @mock.patch('aodnfetcher.fetcherlib.requests')
+    def test_unique_id(self, mock_requests):
+        mock_requests.get().headers = {'ETag': self.mock_etag}
         unique_id = self.fetcher.unique_id
         self.assertEqual(unique_id, self.mock_etag)
 

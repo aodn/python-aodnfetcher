@@ -4,6 +4,7 @@ python:
 
 install:
   - pip install coverage
+  - pip install codecov
 
 script:
   - coverage run setup.py test

@@ -5,7 +5,6 @@ import logging
 import os
 import sys
 import textwrap
-from shutil import copyfileobj
 
 import aodnfetcher
 
@@ -67,28 +66,16 @@ def main():
         logging.basicConfig(level=logging.INFO, stream=sys.stderr,
                             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-    downloader = aodnfetcher.fetcher_downloader(cache_dir=args.cache_dir)
     results = {}
-
     for artifact in args.artifact:
         try:
-            artifact_fetcher = aodnfetcher.fetcher(artifact, authenticated=args.authenticated)
-            handle = downloader.get_handle(artifact_fetcher)
+            result = aodnfetcher.download_file(artifact, authenticated=args.authenticated, cache_dir=args.cache_dir)
         except Exception as e:
             if args.outfile is not sys.stdout:
                 args.outfile.close()
                 os.unlink(args.outfile.name)
             sys.exit(str(e))
-
-        filename = os.path.basename(artifact_fetcher.real_url)
-
-        with open(filename, 'wb') as f:
-            copyfileobj(handle, f)
-
-        results[artifact] = {
-            'local_file': filename,
-            'real_url': artifact_fetcher.real_url
-        }
+        results[artifact] = result
 
     if not args.no_json:
         json.dump(results, args.outfile, indent=4, separators=(',', ': '))

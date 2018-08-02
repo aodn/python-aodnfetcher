@@ -114,28 +114,23 @@ total 55768
 ### Python library interface
 
 ```python
-from shutil import copyfileobj
-
 import aodnfetcher
 
 
 # fetch an artifact from a supported URL scheme
-fetcher = aodnfetcher.fetcher('jenkins://imos-binary/portal_4_prod')
-with open('aodn-portal.war', 'wb') as f:
-    copyfileobj(fetcher.handle, f)
+result = aodnfetcher.download_file('jenkins://imos-binary/portal_4_prod')
+print(result)
+{'local_file': 'aodn-portal-4.38.8-production.war', 'real_url': 's3://imos-binary/jobs/portal_4_prod/70/aodn-portal-4.38.8-production.war'}
 
-# fetch an artifact via a caching downloader
-caching_downloader = aodnfetcher.fetcher_downloader('/tmp/cachedir')
-fetcher2 = aodnfetcher.fetcher('https://github.com/aodn/aodn-portal/archive/master.zip')
-
-with open('aodn-portal-source.zip', 'wb') as f:
-    copyfileobj(caching_downloader.get_file(fetcher2), f)
+# fetch an artifact with a custom name
+result = aodnfetcher.download_file('https://github.com/aodn/aodn-portal/archive/master.zip',
+                                   local_file='aodn-portal-source.zip')
+print(result)
+{'local_file': 'aodn-portal-source.zip', 'real_url': 'https://github.com/aodn/aodn-portal/archive/master.zip'}
 
 # fetch an artifact via a direct or caching downloader depending on a whether cache_dir is supplied
 cache_dir = None
-downloader = aodnfetcher.fetcher_downloader(cache_dir=cache_dir)
-fetcher3 = aodnfetcher.fetcher('s3://imos-binary/static/talend/stels_mdb_pack.zip')
-
-with open('stels_mdb_pack.zip', 'wb') as f:
-    copyfileobj(downloader.get_file(fetcher3), f)
+result = aodnfetcher.download_file('s3://imos-binary/static/talend/stels_mdb_pack.zip', cache_dir=cache_dir)
+print(result)
+{'local_file': 'stels_mdb_pack.zip', 'real_url': 's3://imos-binary/static/talend/stels_mdb_pack.zip'}
 ```

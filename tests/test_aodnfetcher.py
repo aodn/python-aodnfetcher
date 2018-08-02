@@ -28,6 +28,10 @@ def get_mocked_s3_fetcher(url):
 
 
 class TestFetcherLib(unittest.TestCase):
+    def setUp(self):
+        self.mock_content = b'mock content'
+        self.mock_file = mock.mock_open(read_data=self.mock_content)
+
     @mock.patch('aodnfetcher.fetcherlib.os')
     def test_caching_downloader(self, mock_os):
         downloader = aodnfetcher.fetcher_downloader('cache_dir')
@@ -91,6 +95,20 @@ class TestFetcherLib(unittest.TestCase):
     def test_invalid_scheme(self):
         with self.assertRaises(aodnfetcher.fetcherlib.InvalidArtifactError):
             _ = aodnfetcher.fetcher('invalidscheme://invalid/scheme')
+
+    def test_download_file_with_original_name(self):
+        with mock.patch('aodnfetcher.fetcherlib.open', self.mock_file) as m:
+            result = aodnfetcher.download_file('file://path/to/original_name')
+
+        m().write.assert_called_with(self.mock_content)
+        self.assertEqual(result['local_file'], 'original_name')
+
+    def test_download_file_with_alternate_name(self):
+        with mock.patch('aodnfetcher.fetcherlib.open', self.mock_file) as m:
+            result = aodnfetcher.download_file('file://path/to/original_name', local_file='alternate_name')
+
+        m().write.assert_called_with(self.mock_content)
+        self.assertEqual(result['local_file'], 'alternate_name')
 
 
 # TODO: write tests for FetcherCachingDownloader
@@ -251,7 +269,7 @@ class TestJenkinsS3Fetcher(unittest.TestCase):
         self.assertEqual(fetcher.real_url, 's3://bucket/jobs/job/2/path2.whl')
 
 
-class TestPostgresSchemaBackupS3Fetcher(unittest.TestCase):
+class TestSchemaBackupS3Fetcher(unittest.TestCase):
     def setUp(self):
         self.list_objects_side_effect = [
             # host query

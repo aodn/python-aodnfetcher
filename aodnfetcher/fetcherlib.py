@@ -4,15 +4,14 @@ import json
 import logging
 import os
 import re
+import shutil
 from functools import partial
 from hashlib import sha256
-from shutil import copyfileobj
 
 import boto3
 import botocore.config
 import botocore.exceptions
 import requests
-from botocore import UNSIGNED
 
 try:
     from urllib.parse import ParseResult, parse_qs, urlparse, urlunparse
@@ -20,8 +19,10 @@ except ImportError:
     from urlparse import ParseResult, parse_qs, urlparse, urlunparse
 
 __all__ = [
+    'download_file',
     'fetcher',
     'fetcher_downloader',
+    'get_file_hash',
     'AuthenticationError',
     'InvalidArtifactError',
     'FetcherCachingDownloader',
@@ -55,19 +56,6 @@ class KeyResolutionError(Exception):
     __str__ = __repr__
 
 
-def get_file_hash(filepath):
-    """Get the SHA256 hash value (hexdigest) of a file
-
-    :param filepath: path to the file being hashed
-    :return: SHA256 hash of the file
-    """
-    hasher = sha256()
-    with open(filepath, 'rb') as f:
-        for block in iter(partial(f.read, 65536), b''):
-            hasher.update(block)
-    return hasher.hexdigest()
-
-
 def fetcher(artifact, authenticated=False):
     """Factory to return an appropriate AbstractFileFetcher subclass for the given artifact string, or raise an
     exception if URL scheme is unknown or invalid
@@ -99,6 +87,43 @@ def fetcher_downloader(cache_dir=None):
     :return: AbstractFetcherDownloader subclass
     """
     return FetcherCachingDownloader(cache_dir=cache_dir) if cache_dir else FetcherDirectDownloader()
+
+
+def download_file(artifact, local_file=None, authenticated=False, cache_dir=None):
+    """Helper function to handle the most common use case
+
+    :param artifact: artifact URL string
+    :param local_file: local path
+    :param authenticated:
+    :param cache_dir:
+    :return:
+    """
+    fetcher_ = fetcher(artifact, authenticated)
+    downloader = fetcher_downloader(cache_dir)
+
+    if local_file is None:
+        local_file = os.path.basename(fetcher_.real_url)
+
+    with open(local_file, 'wb') as f:
+        shutil.copyfileobj(downloader.get_handle(fetcher_), f)
+
+    return {
+        'local_file': local_file,
+        'real_url': fetcher_.real_url
+    }
+
+
+def get_file_hash(filepath):
+    """Get the SHA256 hash value (hexdigest) of a file
+
+    :param filepath: path to the file being hashed
+    :return: SHA256 hash of the file
+    """
+    hasher = sha256()
+    with open(filepath, 'rb') as f:
+        for block in iter(partial(f.read, 65536), b''):
+            hasher.update(block)
+    return hasher.hexdigest()
 
 
 class AbstractFetcherDownloader(object):
@@ -173,7 +198,7 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
     def _put_file(self, file_fetcher):
         cache_path = self._get_cache_path(file_fetcher)
         with open(cache_path, 'wb') as out_file:
-            copyfileobj(file_fetcher.handle, out_file)
+            shutil.copyfileobj(file_fetcher.handle, out_file)
         self._update_index(file_fetcher)
 
     def _update_index(self, file_fetcher):
@@ -324,7 +349,7 @@ class S3Fetcher(AbstractFileFetcher):
             LOGGER.info('creating authenticated S3 client')
         else:
             LOGGER.info('creating anonymous S3 client')
-            s3_client_kwargs['config'] = botocore.config.Config(signature_version=UNSIGNED)
+            s3_client_kwargs['config'] = botocore.config.Config(signature_version=botocore.UNSIGNED)
         return boto3.client('s3', **s3_client_kwargs)
 
 

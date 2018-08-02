@@ -4,16 +4,20 @@ import json
 import logging
 import os
 import re
-import urllib2
 from functools import partial
 from hashlib import sha256
 from shutil import copyfileobj
-from urlparse import ParseResult, parse_qs, urlparse, urlunparse
 
 import boto3
 import botocore.config
 import botocore.exceptions
+import requests
 from botocore import UNSIGNED
+
+try:
+    from urllib.parse import ParseResult, parse_qs, urlparse, urlunparse
+except ImportError:
+    from urlparse import ParseResult, parse_qs, urlparse, urlunparse
 
 __all__ = [
     'fetcher',
@@ -49,6 +53,19 @@ class KeyResolutionError(Exception):
         return "{}(message=\"{}\", reason_code=\"{}\")".format(self.__class__.__name__, self.message, self.reason_code)
 
     __str__ = __repr__
+
+
+def get_file_hash(filepath):
+    """Get the SHA256 hash value (hexdigest) of a file
+
+    :param filepath: path to the file being hashed
+    :return: SHA256 hash of the file
+    """
+    hasher = sha256()
+    with open(filepath, 'rb') as f:
+        for block in iter(partial(f.read, 65536), b''):
+            hasher.update(block)
+    return hasher.hexdigest()
 
 
 def fetcher(artifact, authenticated=False):
@@ -113,7 +130,7 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
 
         try:
             os.mkdir(cache_dir)
-        except OSError as e:
+        except OSError as e:  # pragma: no cover
             if e.errno != errno.EEXIST:
                 raise
 
@@ -196,13 +213,6 @@ class AbstractFileFetcher(object):
         pass
 
 
-class DefaultErrorHandler(urllib2.HTTPDefaultErrorHandler):
-    def http_error_default(self, req, fp, code, msg, headers):
-        result = urllib2.HTTPError(req.get_full_url(), code, msg, headers, fp)
-        result.status = code
-        return result
-
-
 class HTTPFetcher(AbstractFileFetcher):
     """Fetch from a regular HTTP URL, using Etag header (if available) to provide identifier for cache validation
     """
@@ -218,21 +228,22 @@ class HTTPFetcher(AbstractFileFetcher):
         return urlunparse(self.parsed_url)
 
     @property
-    def stream(self):
+    def response(self):
         if self._stream is None:
-            opener = urllib2.build_opener(DefaultErrorHandler())
-            self._stream = opener.open(urllib2.Request(self.real_url))
+            r = requests.get(self.real_url, stream=True)
+            r.raise_for_status()
+            self._stream = r
         return self._stream
 
     @property
     def handle(self):
         if self._handle is None:
-            self._handle = self.stream.fp
+            self._handle = self.response.raw
         return self._handle
 
     @property
     def unique_id(self):
-        return self.stream.headers.get('ETag')
+        return self.response.headers.get('ETag')
 
 
 class LocalFileFetcher(AbstractFileFetcher):
@@ -263,11 +274,7 @@ class LocalFileFetcher(AbstractFileFetcher):
 
     @property
     def unique_id(self):
-        hasher = sha256()
-        with open(self.path, 'rb') as f:
-            for block in iter(partial(f.read, 65536), b''):
-                hasher.update(block)
-        return hasher.hexdigest()
+        return get_file_hash(self.path)
 
 
 class S3Fetcher(AbstractFileFetcher):

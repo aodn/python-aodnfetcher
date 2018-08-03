@@ -10,7 +10,7 @@ setup(
     author_email='developers@emii.org.au',
     description='AODN artifact fetcher',
     zip_safe=False,
-    install_requires=['boto3'],
+    install_requires=['boto3', 'requests'],
     tests_require=['mock', 'codecov', 'coverage'],
     entry_points={'console_scripts': ['aodnfetcher=aodnfetcher.cli:main']}
 )

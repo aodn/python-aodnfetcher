@@ -1,2 +1,2 @@
-boto3==1.7.67
-requests==2.19.1
+--index-url https://pypi.python.org/simple/
+-e .

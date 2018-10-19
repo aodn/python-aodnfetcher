@@ -11,8 +11,8 @@ setup(
     description='AODN artifact fetcher',
     zip_safe=False,
     install_requires=[
-        'boto3==1.7.67',
-        'requests==2.19.1'
+        'boto3==1.9.27',
+        'requests==2.20.0'
     ],
     tests_require=[
         'mock',

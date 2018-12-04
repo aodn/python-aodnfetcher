@@ -128,12 +128,12 @@ class TestHTTPFetcher(unittest.TestCase):
     def setUp(self):
         self.url = 'http://www.example.com'
         self.fetcher = aodnfetcher.fetcherlib.HTTPFetcher(aodnfetcher.fetcherlib.urlparse(self.url))
-        self.mock_content = u'mock content'
+        self.mock_content = 'mock content'
         self.mock_etag = 'abc123'
 
     @mock.patch('aodnfetcher.fetcherlib.requests')
     def test_handle(self, mock_requests):
-        mock_requests.get().raw = StringIO(self.mock_content)
+        mock_requests.get().content = self.mock_content
         content = self.fetcher.handle.read()
         self.assertEqual(content, self.mock_content)
 

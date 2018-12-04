@@ -7,6 +7,7 @@ import re
 import shutil
 from functools import partial
 from hashlib import sha256
+from io import BytesIO
 
 import boto3
 import botocore.config
@@ -263,7 +264,7 @@ class HTTPFetcher(AbstractFileFetcher):
     @property
     def handle(self):
         if self._handle is None:
-            self._handle = self.response.raw
+            self._handle = BytesIO(self.response.content)
         return self._handle
 
     @property

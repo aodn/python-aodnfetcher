@@ -15,9 +15,14 @@ import botocore.exceptions
 import requests
 
 try:
-    from urllib.parse import ParseResult, parse_qs, urlparse, urlunparse
+    from urllib.parse import ParseResult, parse_qs, urlparse
 except ImportError:
-    from urlparse import ParseResult, parse_qs, urlparse, urlunparse
+    from urlparse import ParseResult, parse_qs, urlparse
+
+try:
+    from urllib import urlencode
+except ImportError:
+    from urllib.parse import urlencode
 
 __all__ = [
     'download_file',
@@ -67,16 +72,20 @@ def fetcher(artifact, authenticated=False):
     """
     parsed_url = urlparse(artifact)
 
+    qs = parse_qs(parsed_url.query)
+    local_file = qs.pop('local_file', (None,))[0]
+    parsed_url = parsed_url._replace(query=urlencode(qs, True))
+
     if parsed_url.scheme == 'jenkins':
-        return JenkinsS3Fetcher(parsed_url=parsed_url, authenticated=authenticated)
+        return JenkinsS3Fetcher(parsed_url=parsed_url, local_file_hint=local_file, authenticated=authenticated)
     elif parsed_url.scheme == 'schemabackup':
-        return SchemaBackupS3Fetcher(parsed_url=parsed_url, authenticated=authenticated)
+        return SchemaBackupS3Fetcher(parsed_url=parsed_url, local_file_hint=local_file, authenticated=authenticated)
     elif parsed_url.scheme in ('http', 'https'):
-        return HTTPFetcher(parsed_url=parsed_url)
+        return HTTPFetcher(parsed_url=parsed_url, local_file_hint=local_file)
     elif parsed_url.scheme == 's3':
-        return S3Fetcher(parsed_url=parsed_url, authenticated=authenticated)
+        return S3Fetcher(parsed_url=parsed_url, local_file_hint=local_file, authenticated=authenticated)
     elif parsed_url.scheme == 'file' or not parsed_url.scheme:
-        return LocalFileFetcher(parsed_url=parsed_url)
+        return LocalFileFetcher(parsed_url=parsed_url, local_file_hint=local_file)
     else:
         raise InvalidArtifactError("unable to find a fetcher for artifact '{artifact}'".format(artifact=artifact))
 
@@ -94,16 +103,18 @@ def download_file(artifact, local_file=None, authenticated=False, cache_dir=None
     """Helper function to handle the most common use case
 
     :param artifact: artifact URL string
-    :param local_file: local path
-    :param authenticated:
-    :param cache_dir:
-    :return:
+    :param local_file: local file path
+    :param authenticated: control whether boto3 client is anonymous or authenticated
+    :param cache_dir: optional cache dir
+    :return: dict containing information about the actual (resolved) URL and the local file path of the downloaded file
     """
     fetcher_ = fetcher(artifact, authenticated)
     downloader = fetcher_downloader(cache_dir)
 
+    # the local filename will be determined using the following order of precendence:
+    # local_file function parameter > local_file query string parameter from URL > basename of the remote file
     if local_file is None:
-        local_file = os.path.basename(fetcher_.real_url)
+        local_file = fetcher_.local_file_hint if fetcher_.local_file_hint else os.path.basename(fetcher_.real_url)
 
     with open(local_file, 'wb') as f:
         shutil.copyfileobj(downloader.get_handle(fetcher_), f)
@@ -221,8 +232,9 @@ class AbstractFileFetcher(object):
 
     __metaclass__ = abc.ABCMeta
 
-    def __init__(self, parsed_url):
+    def __init__(self, parsed_url, local_file_hint=None):
         self.parsed_url = parsed_url
+        self.local_file_hint = local_file_hint
 
         self._handle = None
 
@@ -255,15 +267,15 @@ class HTTPFetcher(AbstractFileFetcher):
     """Fetch from a regular HTTP URL, using Etag header (if available) to provide identifier for cache validation
     """
 
-    def __init__(self, parsed_url):
-        super(HTTPFetcher, self).__init__(parsed_url)
+    def __init__(self, parsed_url, local_file_hint=None):
+        super(HTTPFetcher, self).__init__(parsed_url, local_file_hint)
 
         self.path = parsed_url.path
         self._stream = None
 
     @property
     def real_url(self):
-        return urlunparse(self.parsed_url)
+        return self.parsed_url.geturl()
 
     @property
     def response(self):
@@ -288,8 +300,8 @@ class LocalFileFetcher(AbstractFileFetcher):
     """Fetch from a local file path, using the sha256 sum of the file to provide identifier for cache validation
     """
 
-    def __init__(self, parsed_url):
-        super(LocalFileFetcher, self).__init__(parsed_url)
+    def __init__(self, parsed_url, local_file_hint=None):
+        super(LocalFileFetcher, self).__init__(parsed_url, local_file_hint)
 
         if parsed_url.netloc:
             path = os.path.join(os.path.abspath(parsed_url.netloc), parsed_url.path.lstrip('/'))
@@ -319,8 +331,8 @@ class S3Fetcher(AbstractFileFetcher):
     """Fetch from an S3 URL, using Etag header to provide identifier for cache validation
     """
 
-    def __init__(self, parsed_url, authenticated=False, s3_client=None):
-        super(S3Fetcher, self).__init__(parsed_url)
+    def __init__(self, parsed_url, local_file_hint=None, authenticated=False, s3_client=None):
+        super(S3Fetcher, self).__init__(parsed_url, local_file_hint)
 
         self.bucket = parsed_url.netloc
         self.path = parsed_url.path.lstrip('/')
@@ -331,7 +343,7 @@ class S3Fetcher(AbstractFileFetcher):
 
     @property
     def real_url(self):
-        return urlunparse(self.parsed_url)
+        return self.parsed_url.geturl()
 
     @property
     def handle(self):
@@ -367,8 +379,8 @@ class S3Fetcher(AbstractFileFetcher):
 
 
 class BaseResolvingS3Fetcher(AbstractFileFetcher):
-    def __init__(self, parsed_url, authenticated=False):
-        super(BaseResolvingS3Fetcher, self).__init__(parsed_url)
+    def __init__(self, parsed_url, local_file_hint=None, authenticated=False):
+        super(BaseResolvingS3Fetcher, self).__init__(parsed_url, local_file_hint)
         self.authenticated = authenticated
 
         self.bucket = parsed_url.netloc
@@ -403,7 +415,7 @@ class BaseResolvingS3Fetcher(AbstractFileFetcher):
 
     @property
     def real_url(self):
-        return urlunparse(self.real_parsed_url)
+        return self.real_parsed_url.geturl()
 
     @property
     def handle(self):
@@ -440,8 +452,8 @@ class JenkinsS3Fetcher(BaseResolvingS3Fetcher):
     """
     key_parse_pattern = re.compile(r"^jobs/(?P<job_name>[^/]+)/(?P<build_number>[^/]+)/(?P<basename>.*)$")
 
-    def __init__(self, parsed_url, authenticated=False):
-        super(JenkinsS3Fetcher, self).__init__(parsed_url, authenticated)
+    def __init__(self, parsed_url, local_file_hint=None, authenticated=False):
+        super(JenkinsS3Fetcher, self).__init__(parsed_url, local_file_hint, authenticated)
 
         self.job_name = parsed_url.path.lstrip('/')
 
@@ -482,8 +494,8 @@ class JenkinsS3Fetcher(BaseResolvingS3Fetcher):
 
 
 class SchemaBackupS3Fetcher(BaseResolvingS3Fetcher):
-    def __init__(self, parsed_url, authenticated=True):
-        super(SchemaBackupS3Fetcher, self).__init__(parsed_url, authenticated)
+    def __init__(self, parsed_url, local_file_hint=None, authenticated=True):
+        super(SchemaBackupS3Fetcher, self).__init__(parsed_url, local_file_hint, authenticated)
 
         components = parsed_url.path.lstrip('/').split('/')
         if len(components) != 3:

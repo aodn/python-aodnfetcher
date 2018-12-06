@@ -226,6 +226,18 @@ class AbstractFileFetcher(object):
 
         self._handle = None
 
+    def get_value_from_query_string(self, param, default=None):
+        """Retrieve a value from the query string
+
+        :param param: parameter to retrieve
+        :param default: value to return if the parameter is not present
+        :return: parameter value or default value
+        """
+        try:
+            return parse_qs(self.parsed_url.query)[param][0]
+        except (IndexError, KeyError):
+            return default
+
     @abc.abstractproperty
     def real_url(self):
         pass
@@ -433,12 +445,8 @@ class JenkinsS3Fetcher(BaseResolvingS3Fetcher):
 
         self.job_name = parsed_url.path.lstrip('/')
 
-        try:
-            self.filename_pattern = parse_qs(parsed_url.query)['pattern'][0]
-        except (KeyError, IndexError):
-            self.filename_pattern = r'^.*\.war$'
-
         self._all_builds = None
+        self._filename_pattern = None
 
     @property
     def all_builds(self):
@@ -446,6 +454,12 @@ class JenkinsS3Fetcher(BaseResolvingS3Fetcher):
             self._all_builds = self.s3_client.list_objects_v2(Bucket=self.bucket,
                                                               Prefix="jobs/{}".format(self.job_name))
         return self._all_builds
+
+    @property
+    def filename_pattern(self):
+        if self._filename_pattern is None:
+            self._filename_pattern = self.get_value_from_query_string('pattern', r'^.*\.war$')
+        return self._filename_pattern
 
     def _get_key(self):
         if not self.all_builds.get('Contents'):
@@ -476,10 +490,13 @@ class SchemaBackupS3Fetcher(BaseResolvingS3Fetcher):
             raise ValueError('URL must be in the format: schemabackup://bucket/host/database/schema')
         self.host, self.database, self.schema = components
 
-        try:
-            self.timestamp = parse_qs(parsed_url.query)['timestamp'][0]
-        except (KeyError, IndexError):
-            self.timestamp = 'LATEST'
+        self._timestamp = None
+
+    @property
+    def timestamp(self):
+        if self._timestamp is None:
+            self._timestamp = self.get_value_from_query_string('timestamp', default='LATEST')
+        return self._timestamp
 
     def _get_key(self):
         host_prefix_components = ['backups', '']

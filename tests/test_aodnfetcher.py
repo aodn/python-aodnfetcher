@@ -122,7 +122,7 @@ class TestHTTPFetcher(unittest.TestCase):
     def setUp(self):
         self.url = 'http://www.example.com'
         self.fetcher = aodnfetcher.fetcherlib.HTTPFetcher(aodnfetcher.fetcherlib.urlparse(self.url))
-        self.mock_content = 'mock content'
+        self.mock_content = b'mock content'
         self.mock_etag = 'abc123'
 
     @mock.patch('aodnfetcher.fetcherlib.requests')
@@ -170,7 +170,7 @@ class TestS3Fetcher(unittest.TestCase):
         self.url = 's3://bucket/key/path'
         self.fetcher = get_mocked_s3_fetcher(self.url)
 
-        self.mock_content = 'mock content'
+        self.mock_content = b'mock content'
         self.mock_etag = 'abc123'
         mock_body = mock.MagicMock()
         mock_body.read.return_value = self.mock_content
@@ -206,7 +206,7 @@ class TestJenkinsS3Fetcher(unittest.TestCase):
         self.url = 'jenkins://bucket/job'
         self.fetcher = get_mocked_s3_fetcher(self.url)
 
-        self.mock_content = 'mock content'
+        self.mock_content = b'mock content'
         self.mock_etag = 'abc123'
         mock_body = mock.MagicMock()
         mock_body.read.return_value = self.mock_content

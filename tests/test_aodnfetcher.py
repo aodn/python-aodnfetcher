@@ -1,6 +1,5 @@
 import os
 import unittest
-from io import StringIO
 
 import botocore.exceptions
 import mock
@@ -9,21 +8,9 @@ import aodnfetcher
 import aodnfetcher.fetcherlib
 
 
-def get_mocked_jenkins_fetcher(url):
-    with mock.patch('aodnfetcher.fetcherlib.boto3'):
-        fetcher = aodnfetcher.fetcherlib.JenkinsS3Fetcher(aodnfetcher.fetcherlib.urlparse(url))
-    return fetcher
-
-
-def get_mocked_schemabackup_fetcher(url):
-    with mock.patch('aodnfetcher.fetcherlib.boto3'):
-        fetcher = aodnfetcher.fetcherlib.SchemaBackupS3Fetcher(aodnfetcher.fetcherlib.urlparse(url))
-    return fetcher
-
-
 def get_mocked_s3_fetcher(url):
     with mock.patch('aodnfetcher.fetcherlib.boto3'):
-        fetcher = aodnfetcher.fetcherlib.S3Fetcher(aodnfetcher.fetcherlib.urlparse(url))
+        fetcher = aodnfetcher.fetcher(url)
     return fetcher
 
 
@@ -110,6 +97,13 @@ class TestFetcherLib(unittest.TestCase):
         m().write.assert_called_with(self.mock_content)
         self.assertEqual(result['local_file'], 'alternate_name')
 
+    def test_download_file_with_alternate_name_from_url(self):
+        with mock.patch('aodnfetcher.fetcherlib.open', self.mock_file) as m:
+            result = aodnfetcher.download_file('file://path/to/original_name?local_file=alternate_name')
+
+        m().write.assert_called_with(self.mock_content)
+        self.assertEqual(result['local_file'], 'alternate_name')
+
 
 # TODO: write tests for FetcherCachingDownloader
 class TestFetcherCachingDownloader(unittest.TestCase):
@@ -128,12 +122,12 @@ class TestHTTPFetcher(unittest.TestCase):
     def setUp(self):
         self.url = 'http://www.example.com'
         self.fetcher = aodnfetcher.fetcherlib.HTTPFetcher(aodnfetcher.fetcherlib.urlparse(self.url))
-        self.mock_content = u'mock content'
+        self.mock_content = b'mock content'
         self.mock_etag = 'abc123'
 
     @mock.patch('aodnfetcher.fetcherlib.requests')
     def test_handle(self, mock_requests):
-        mock_requests.get().raw = StringIO(self.mock_content)
+        mock_requests.get().content = self.mock_content
         content = self.fetcher.handle.read()
         self.assertEqual(content, self.mock_content)
 
@@ -176,7 +170,7 @@ class TestS3Fetcher(unittest.TestCase):
         self.url = 's3://bucket/key/path'
         self.fetcher = get_mocked_s3_fetcher(self.url)
 
-        self.mock_content = 'mock content'
+        self.mock_content = b'mock content'
         self.mock_etag = 'abc123'
         mock_body = mock.MagicMock()
         mock_body.read.return_value = self.mock_content
@@ -210,9 +204,9 @@ class TestS3Fetcher(unittest.TestCase):
 class TestJenkinsS3Fetcher(unittest.TestCase):
     def setUp(self):
         self.url = 'jenkins://bucket/job'
-        self.fetcher = get_mocked_jenkins_fetcher(self.url)
+        self.fetcher = get_mocked_s3_fetcher(self.url)
 
-        self.mock_content = 'mock content'
+        self.mock_content = b'mock content'
         self.mock_etag = 'abc123'
         mock_body = mock.MagicMock()
         mock_body.read.return_value = self.mock_content
@@ -260,13 +254,24 @@ class TestJenkinsS3Fetcher(unittest.TestCase):
 
     def test_custom_jenkins_pattern(self):
         url = 'jenkins://bucket/job?pattern=^.*\.whl$'
-        fetcher = get_mocked_jenkins_fetcher(url)
+        fetcher = get_mocked_s3_fetcher(url)
         fetcher.s3_client.list_objects_v2.return_value = {'Contents': [
             {'Key': 'jobs/job/1/path1.war'},
             {'Key': 'jobs/job/2/path2.whl'}
         ]}
 
         self.assertEqual(fetcher.real_url, 's3://bucket/jobs/job/2/path2.whl')
+
+    def test_custom_jenkins_pattern_to_local_file(self):
+        url = 'jenkins://bucket/job?pattern=^.*\.whl$&local_file=custom_path.whl'
+        fetcher = get_mocked_s3_fetcher(url)
+        fetcher.s3_client.list_objects_v2.return_value = {'Contents': [
+            {'Key': 'jobs/job/1/path1.war'},
+            {'Key': 'jobs/job/2/path2.whl'}
+        ]}
+
+        self.assertEqual(fetcher.real_url, 's3://bucket/jobs/job/2/path2.whl')
+        self.assertEqual(fetcher.local_file_hint, 'custom_path.whl')
 
 
 class TestSchemaBackupS3Fetcher(unittest.TestCase):
@@ -287,7 +292,7 @@ class TestSchemaBackupS3Fetcher(unittest.TestCase):
 
     def test_latest_dump_explicit(self):
         url = 'schemabackup://test-bucket/test-host/test-database/test-schema?timestamp=LATEST'
-        fetcher = get_mocked_schemabackup_fetcher(url)
+        fetcher = get_mocked_s3_fetcher(url)
 
         fetcher.s3_client.list_objects_v2.side_effect = self.list_objects_side_effect
 
@@ -296,7 +301,7 @@ class TestSchemaBackupS3Fetcher(unittest.TestCase):
 
     def test_latest_dump_implicit(self):
         url = 'schemabackup://test-bucket/test-host/test-database/test-schema'
-        fetcher = get_mocked_schemabackup_fetcher(url)
+        fetcher = get_mocked_s3_fetcher(url)
 
         fetcher.s3_client.list_objects_v2.side_effect = self.list_objects_side_effect
 
@@ -305,7 +310,7 @@ class TestSchemaBackupS3Fetcher(unittest.TestCase):
 
     def test_with_invalid_host(self):
         url = 'schemabackup://test-bucket/invalid-test-host/test-database/test-schema?timestamp=2011.01.01.04.30.30'
-        fetcher = get_mocked_schemabackup_fetcher(url)
+        fetcher = get_mocked_s3_fetcher(url)
 
         fetcher.s3_client.list_objects_v2.side_effect = self.list_objects_side_effect
 
@@ -315,7 +320,7 @@ class TestSchemaBackupS3Fetcher(unittest.TestCase):
 
     def test_with_timestamp(self):
         url = 'schemabackup://test-bucket/test-host/test-database/test-schema?timestamp=2018.07.20.04.30.30'
-        fetcher = get_mocked_schemabackup_fetcher(url)
+        fetcher = get_mocked_s3_fetcher(url)
 
         fetcher.s3_client.list_objects_v2.side_effect = self.list_objects_side_effect
 
@@ -324,7 +329,7 @@ class TestSchemaBackupS3Fetcher(unittest.TestCase):
 
     def test_with_invalid_timestamp(self):
         url = 'schemabackup://test-bucket/test-host/test-database/test-schema?timestamp=2011.01.01.04.30.30'
-        fetcher = get_mocked_schemabackup_fetcher(url)
+        fetcher = get_mocked_s3_fetcher(url)
 
         fetcher.s3_client.list_objects_v2.side_effect = self.list_objects_side_effect
 
@@ -334,7 +339,7 @@ class TestSchemaBackupS3Fetcher(unittest.TestCase):
 
     def test_with_no_timestamps(self):
         url = 'schemabackup://test-bucket/test-host-2/test-database/test-schema?timestamp=2011.01.01.04.30.30'
-        fetcher = get_mocked_schemabackup_fetcher(url)
+        fetcher = get_mocked_s3_fetcher(url)
 
         self.list_objects_side_effect[1] = {
             'CommonPrefixes': []
@@ -348,7 +353,7 @@ class TestSchemaBackupS3Fetcher(unittest.TestCase):
 
     def test_with_timestamp_missing_schema(self):
         url = 'schemabackup://test-bucket/test-host/test-database/dummy_schema?timestamp=2018.07.20.04.30.30'
-        fetcher = get_mocked_schemabackup_fetcher(url)
+        fetcher = get_mocked_s3_fetcher(url)
 
         fetcher.s3_client.list_objects_v2.side_effect = self.list_objects_side_effect
         dummy_error = botocore.exceptions.ClientError({'Error': {'Code': 'NoSuchKey'}}, 'GetObject')
@@ -361,4 +366,4 @@ class TestSchemaBackupS3Fetcher(unittest.TestCase):
     def test_invalid_url(self):
         url = 'schemabackup://test-bucket/test-schema?timestamp=2018.07.20.04.30.30'
         with self.assertRaises(ValueError):
-            _ = get_mocked_schemabackup_fetcher(url)
+            _ = get_mocked_s3_fetcher(url)

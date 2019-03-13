@@ -219,16 +219,21 @@ class TestJenkinsS3Fetcher(unittest.TestCase):
                 }
             }
         }
-        self.fetcher.s3_client.list_objects_v2.return_value = {
-            'Contents': [{'Key': 'jobs/job/1/path1.war'}, {'Key': 'jobs/job/2/path2.war'}]
-        }
+
+        self.fetcher.s3_client.get_paginator().paginate().result_key_iters.return_value = [
+            [{'Key': 'jobs/job/1/path1.war'}, {'Key': 'jobs/job/2/path2.war'}],
+            [{'Key': 'jobs/job/3/path1.war'}, {'Key': 'jobs/job/4/path2.war'}]
+        ]
+
+        self.fetcher.s3_client.list_objects_v2.__self__ = self.fetcher.s3_client
+        self.fetcher.s3_client.list_objects_v2.__name__ = 'list_objects_v2'
 
     def test_handle(self):
         content = self.fetcher.handle.read()
         self.assertEqual(content, self.mock_content)
 
     def test_real_url(self):
-        self.assertEqual(self.fetcher.real_url, 's3://bucket/jobs/job/2/path2.war')
+        self.assertEqual(self.fetcher.real_url, 's3://bucket/jobs/job/4/path2.war')
 
     def test_unique_id(self):
         unique_id = self.fetcher.unique_id
@@ -241,13 +246,17 @@ class TestJenkinsS3Fetcher(unittest.TestCase):
             _ = self.fetcher.object
 
     def test_no_builds(self):
-        self.fetcher.s3_client.list_objects_v2.return_value = {'Contents': []}
+        self.fetcher.s3_client.get_paginator().paginate().result_key_iters.return_value = []
+
         with self.assertRaises(aodnfetcher.fetcherlib.KeyResolutionError) as cm:
             _ = self.fetcher.object
         self.assertEqual(cm.exception.reason_code, 'NO_RESULTS')
 
     def test_no_matching_builds(self):
-        self.fetcher.s3_client.list_objects_v2.return_value = {'Contents': [{'Key': 'jobs/job/3/path3.txt'}]}
+        self.fetcher.s3_client.get_paginator().paginate().result_key_iters.return_value = [
+            [{'Key': 'jobs/job/3/path3.txt'}]
+        ]
+
         with self.assertRaises(aodnfetcher.fetcherlib.KeyResolutionError) as cm:
             _ = self.fetcher.object
         self.assertEqual(cm.exception.reason_code, 'NO_MATCHING_BUILDS')
@@ -255,20 +264,30 @@ class TestJenkinsS3Fetcher(unittest.TestCase):
     def test_custom_jenkins_pattern(self):
         url = 'jenkins://bucket/job?pattern=^.*\.whl$'
         fetcher = get_mocked_s3_fetcher(url)
-        fetcher.s3_client.list_objects_v2.return_value = {'Contents': [
-            {'Key': 'jobs/job/1/path1.war'},
-            {'Key': 'jobs/job/2/path2.whl'}
-        ]}
+        fetcher.s3_client.list_objects_v2.__self__ = fetcher.s3_client
+        fetcher.s3_client.list_objects_v2.__name__ = 'list_objects_v2'
+
+        fetcher.s3_client.get_paginator().paginate().result_key_iters.return_value = [
+            [
+                {'Key': 'jobs/job/1/path1.war'},
+                {'Key': 'jobs/job/2/path2.whl'}
+            ]
+        ]
 
         self.assertEqual(fetcher.real_url, 's3://bucket/jobs/job/2/path2.whl')
 
     def test_custom_jenkins_pattern_to_local_file(self):
         url = 'jenkins://bucket/job?pattern=^.*\.whl$&local_file=custom_path.whl'
         fetcher = get_mocked_s3_fetcher(url)
-        fetcher.s3_client.list_objects_v2.return_value = {'Contents': [
-            {'Key': 'jobs/job/1/path1.war'},
-            {'Key': 'jobs/job/2/path2.whl'}
-        ]}
+        fetcher.s3_client.list_objects_v2.__self__ = fetcher.s3_client
+        fetcher.s3_client.list_objects_v2.__name__ = 'list_objects_v2'
+
+        fetcher.s3_client.get_paginator().paginate().result_key_iters.return_value = [
+            [
+                {'Key': 'jobs/job/1/path1.war'},
+                {'Key': 'jobs/job/2/path2.whl'}
+            ]
+        ]
 
         self.assertEqual(fetcher.real_url, 's3://bucket/jobs/job/2/path2.whl')
         self.assertEqual(fetcher.local_file_hint, 'custom_path.whl')

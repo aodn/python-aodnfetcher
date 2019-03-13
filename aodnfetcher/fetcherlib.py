@@ -138,6 +138,14 @@ def get_file_hash(filepath):
     return hasher.hexdigest()
 
 
+def _paginate(method, **kwargs):
+    client = method.__self__
+    paginator = client.get_paginator(method.__name__)
+    for page in paginator.paginate(**kwargs).result_key_iters():
+        for item in page:
+            yield item
+
+
 class AbstractFetcherDownloader(object):
     __metaclass__ = abc.ABCMeta
 
@@ -463,8 +471,8 @@ class JenkinsS3Fetcher(BaseResolvingS3Fetcher):
     @property
     def all_builds(self):
         if self._all_builds is None:
-            self._all_builds = self.s3_client.list_objects_v2(Bucket=self.bucket,
-                                                              Prefix="jobs/{}".format(self.job_name))
+            self._all_builds = [k for k in _paginate(self.s3_client.list_objects_v2, Bucket=self.bucket,
+                                                     Prefix="jobs/{}".format(self.job_name))]
         return self._all_builds
 
     @property
@@ -474,7 +482,7 @@ class JenkinsS3Fetcher(BaseResolvingS3Fetcher):
         return self._filename_pattern
 
     def _get_key(self):
-        if not self.all_builds.get('Contents'):
+        if not self.all_builds:
             raise KeyResolutionError('NO_RESULTS',
                                      "job '{s.job_name}' was invalid or returned no builds".format(s=self))
 
@@ -487,7 +495,7 @@ class JenkinsS3Fetcher(BaseResolvingS3Fetcher):
         return "jobs/{job_name}/{build_number}/{basename}".format(**latest)
 
     def _get_matching_builds(self):
-        matching_keys = (self.key_parse_pattern.match(a['Key']).groupdict() for a in self.all_builds['Contents'] if
+        matching_keys = (self.key_parse_pattern.match(a['Key']).groupdict() for a in self.all_builds if
                          re.match(self.filename_pattern, a['Key']))
         sorted_keys = sorted(matching_keys, key=lambda p: int(p['build_number']))
         return sorted_keys

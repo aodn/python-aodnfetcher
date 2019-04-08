@@ -13,6 +13,7 @@ import boto3
 import botocore.config
 import botocore.exceptions
 import requests
+from fasteners import InterProcessLock
 
 try:
     from urllib.parse import ParseResult, parse_qs, urlparse
@@ -111,7 +112,7 @@ def download_file(artifact, local_file=None, authenticated=False, cache_dir=None
     fetcher_ = fetcher(artifact, authenticated)
     downloader = fetcher_downloader(cache_dir)
 
-    # the local filename will be determined using the following order of precendence:
+    # the local filename will be determined using the following order of precedence:
     # local_file function parameter > local_file query string parameter from URL > basename of the remote file
     if local_file is None:
         local_file = fetcher_.local_file_hint if fetcher_.local_file_hint else os.path.basename(fetcher_.real_url)
@@ -167,12 +168,12 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
     or some other way to determine a persistent ID for an unchanged file on the remote server).
     """
 
-    def __init__(self, cache_dir, cache_index_file='cacheindex.json'):
+    def __init__(self, cache_dir, cache_index_file='cacheindex.json', cache_index_lockfile='cacheindex.lock'):
         super(FetcherCachingDownloader, self).__init__()
 
         self.cache_dir = cache_dir
         self.cache_index_file = os.path.join(cache_dir, cache_index_file)
-
+        self.cache_index_lockfile = os.path.join(cache_dir, cache_index_lockfile)
         try:
             os.mkdir(cache_dir)
         except OSError as e:  # pragma: no cover
@@ -223,10 +224,11 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
 
     def _update_index(self, file_fetcher):
         cache_key = self.get_cache_key(file_fetcher)
-        index = dict(self.index)
-        index[cache_key] = {'id': file_fetcher.unique_id, 'url': file_fetcher.real_url}
-        with open(self.cache_index_file, 'w') as f:
-            json.dump(index, f)
+        with InterProcessLock(self.cache_index_lockfile):
+            index = dict(self.index)
+            index[cache_key] = {'id': file_fetcher.unique_id, 'url': file_fetcher.real_url}
+            with open(self.cache_index_file, 'w') as f:
+                json.dump(index, f)
 
 
 class FetcherDirectDownloader(AbstractFetcherDownloader):

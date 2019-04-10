@@ -178,9 +178,20 @@ class CachedFile(object):
         self.real_url = real_url
         self.file_hash = file_hash
 
-    def __iter__(self):
+    def __repr__(self):
+        return ("{self.__class__.__name__}(url='{self.url}', unique_id='{self.unique_id}', "
+                "real_url='{self.real_url}', file_hash='{self.file_hash}')").format(self=self)
+
+    def __iter__(self):  # pragma: no cover
         for attr in ('url', 'unique_id', 'real_url', 'file_hash'):
             yield attr, getattr(self, attr)
+
+    def __eq__(self, other):
+        if not isinstance(other, CachedFile):
+            return False
+        return (self.url == other.url and
+                self.unique_id == other.unique_id and
+                self.real_url == other.real_url)
 
     @classmethod
     def from_dict(cls, dict_):

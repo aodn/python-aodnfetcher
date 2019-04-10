@@ -105,6 +105,56 @@ class TestFetcherLib(unittest.TestCase):
         self.assertEqual(result['local_file'], 'alternate_name')
 
 
+class TestCachedFile(unittest.TestCase):
+    def test_equality_equal(self):
+        object1 = aodnfetcher.fetcherlib.CachedFile('file://test/file', None, 'file://test/file', None)
+        object2 = aodnfetcher.fetcherlib.CachedFile('file://test/file', None, 'file://test/file', None)
+
+        self.assertIsNot(object1, object2)
+        self.assertEqual(object1, object2)
+
+    def test_equality_not_equal(self):
+        object1 = aodnfetcher.fetcherlib.CachedFile('http://www.example.com', None, 'http://www.example.com', None)
+        object2 = aodnfetcher.fetcherlib.CachedFile('file://test/file', None, 'file://test/file', None)
+
+        self.assertIsNot(object1, object2)
+        self.assertNotEqual(object1, object2)
+
+        self.assertNotEqual(object1, 'invalid class')
+
+    def test_from_dict_empty(self):
+        from_none = aodnfetcher.fetcherlib.CachedFile.from_dict({})
+        self.assertIsNone(from_none)
+
+    def test_from_dict_valid(self):
+        input_dict = {
+            'url': 'file://test/file',
+            'unique_id': None,
+            'real_url': 'file://test/file',
+            'file_hash': None
+        }
+
+        expected_object = aodnfetcher.fetcherlib.CachedFile('file://test/file', None,
+                                                            'file://test/file', None)
+        from_dict = aodnfetcher.fetcherlib.CachedFile.from_dict(input_dict)
+
+        self.assertEqual(expected_object, from_dict)
+
+    def test_from_fetcher(self):
+        mock_file = mock.mock_open(read_data=b'mock content')
+
+        fetcher = aodnfetcher.fetcherlib.fetcher('file:///tmp/test/file')
+        with mock.patch('aodnfetcher.fetcherlib.open', mock_file):
+            cached_file = aodnfetcher.fetcherlib.CachedFile.from_fetcher(fetcher)
+
+        expected_object = aodnfetcher.fetcherlib.CachedFile('file:///tmp/test/file',
+                                                            '05db393b05821f1a536ec7e7a4094abc67c6293b6489db31d70defcfa60f6a8a',
+                                                            '/tmp/test/file',
+                                                            None)
+
+        self.assertEqual(cached_file, expected_object)
+
+
 # TODO: write tests for FetcherCachingDownloader
 class TestFetcherCachingDownloader(unittest.TestCase):
     pass

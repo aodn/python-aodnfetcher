@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import shutil
+import tempfile
 from functools import partial
 from hashlib import sha256
 from io import BytesIO
@@ -13,6 +14,7 @@ import boto3
 import botocore.config
 import botocore.exceptions
 import requests
+from fasteners import InterProcessLock
 
 try:
     from urllib.parse import ParseResult, parse_qs, urlparse
@@ -111,7 +113,7 @@ def download_file(artifact, local_file=None, authenticated=False, cache_dir=None
     fetcher_ = fetcher(artifact, authenticated)
     downloader = fetcher_downloader(cache_dir)
 
-    # the local filename will be determined using the following order of precendence:
+    # the local filename will be determined using the following order of precedence:
     # local_file function parameter > local_file query string parameter from URL > basename of the remote file
     if local_file is None:
         local_file = fetcher_.local_file_hint if fetcher_.local_file_hint else os.path.basename(fetcher_.real_url)
@@ -138,6 +140,16 @@ def get_file_hash(filepath):
     return hasher.hexdigest()
 
 
+def mkdir_p(path):
+    try:
+        os.makedirs(path)
+    except OSError as e:  # pragma: no cover
+        if e.errno == errno.EEXIST and os.path.isdir(path):
+            pass
+        else:
+            raise
+
+
 def _paginate(method, **kwargs):
     client = method.__self__
     paginator = client.get_paginator(method.__name__)
@@ -158,26 +170,56 @@ class AbstractFetcherDownloader(object):
         pass
 
 
+class CachedFile(object):
+    def __init__(self, url, unique_id, real_url, file_hash):
+        self.url = url
+
+        self.unique_id = unique_id
+        self.real_url = real_url
+        self.file_hash = file_hash
+
+    def __repr__(self):
+        return ("{self.__class__.__name__}(url='{self.url}', unique_id='{self.unique_id}', "
+                "real_url='{self.real_url}', file_hash='{self.file_hash}')").format(self=self)
+
+    def __iter__(self):  # pragma: no cover
+        for attr in ('url', 'unique_id', 'real_url', 'file_hash'):
+            yield attr, getattr(self, attr)
+
+    def __eq__(self, other):
+        if not isinstance(other, CachedFile):
+            return False
+        return (self.url == other.url and
+                self.unique_id == other.unique_id and
+                self.real_url == other.real_url)
+
+    @classmethod
+    def from_dict(cls, dict_):
+        return cls(**dict_) if dict_ else None
+
+    @classmethod
+    def from_fetcher(cls, fetcher_, file_hash=None):
+        return cls(fetcher_.url, fetcher_.unique_id, fetcher_.real_url, file_hash)
+
+
 class FetcherCachingDownloader(AbstractFetcherDownloader):
     """Abstracts the interactions with a cache directory comprising of a JSON index file, and file objects corresponding
     to remote files encapsulated by Fetcher instances.
 
-    Files are stored based on the sha256 hash of their full URL ('real_url' attribute), and cache validation is
-    performed using an implementation-specific Fetcher 'unique_id' attribute to identify stale files (e.g. using Etags,
-    or some other way to determine a persistent ID for an unchanged file on the remote server).
+    Files are stored based on the sha256 hash of their contents in order to deduplicate cache storage, and cache
+    validation is performed using an implementation-specific Fetcher 'unique_id' attribute to identify stale files (e.g.
+    using Etags, or some other way to determine a persistent ID for an unchanged file on the remote server).
     """
 
-    def __init__(self, cache_dir, cache_index_file='cacheindex.json'):
+    def __init__(self, cache_dir, cache_index_file='cacheindex.json', cache_index_lockfile='cacheindex.lock'):
         super(FetcherCachingDownloader, self).__init__()
 
         self.cache_dir = cache_dir
+        self.cache_blob_dir = os.path.join(cache_dir, 'blobs')
         self.cache_index_file = os.path.join(cache_dir, cache_index_file)
+        self.cache_index_lockfile = os.path.join(cache_dir, cache_index_lockfile)
 
-        try:
-            os.mkdir(cache_dir)
-        except OSError as e:  # pragma: no cover
-            if e.errno != errno.EEXIST:
-                raise
+        mkdir_p(self.cache_blob_dir)
 
     @property
     def index(self):
@@ -188,45 +230,55 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
             index = {}
         return index
 
-    def file_is_current(self, file_fetcher):
-        if not file_fetcher.unique_id:
-            return False
-        cache_path = self._get_cache_path(file_fetcher)
-        return os.path.exists(cache_path) and file_fetcher.unique_id == self.get_cached_object_id(file_fetcher)
-
-    def get_cached_object_id(self, file_fetcher):
-        cache_key = self.get_cache_key(file_fetcher)
-        obj = self.index.get(cache_key, {})
-        return obj.get('id')
-
-    @staticmethod
-    def get_cache_key(file_fetcher):
-        return sha256(file_fetcher.real_url).hexdigest()
-
     def get_handle(self, file_fetcher):
-        cache_path = self._get_cache_path(file_fetcher)
-        if self.file_is_current(file_fetcher):
-            LOGGER.info("'{artifact}' is current, using cached file".format(artifact=file_fetcher.real_url))
-        else:
-            LOGGER.info("'{artifact}' is missing or stale, downloading".format(artifact=file_fetcher.real_url))
-            self._put_file(file_fetcher)
-        return open(cache_path, mode='rb')
+        blob_path = self._ensure_cached(file_fetcher)
+        return open(blob_path, mode='rb')
 
-    def _get_cache_path(self, file_fetcher):
-        return os.path.join(self.cache_dir, self.get_cache_key(file_fetcher))
+    def _get_cached_file(self, file_fetcher):
+        entry = self.index.get(CachedFile.from_fetcher(file_fetcher).url, {})
+        return CachedFile.from_dict(entry)
 
-    def _put_file(self, file_fetcher):
-        cache_path = self._get_cache_path(file_fetcher)
-        with open(cache_path, 'wb') as out_file:
-            shutil.copyfileobj(file_fetcher.handle, out_file)
-        self._update_index(file_fetcher)
+    def _get_blob_path(self, cached_file):
+        return None if cached_file.file_hash is None else os.path.join(self.cache_blob_dir, cached_file.file_hash)
 
-    def _update_index(self, file_fetcher):
-        cache_key = self.get_cache_key(file_fetcher)
-        index = dict(self.index)
-        index[cache_key] = {'id': file_fetcher.unique_id, 'url': file_fetcher.real_url}
-        with open(self.cache_index_file, 'w') as f:
-            json.dump(index, f)
+    def _ensure_cached(self, file_fetcher):
+        cached_file = self._get_cached_file(file_fetcher)
+        if cached_file and file_fetcher.unique_id == cached_file.unique_id:
+            blob_path = self._get_blob_path(cached_file)
+            if os.path.exists(blob_path):
+                LOGGER.info("'{artifact}' is current, using cached file".format(artifact=file_fetcher.url))
+                return blob_path
+
+        LOGGER.info("'{artifact}' is missing or stale, adding to cache".format(artifact=file_fetcher.url))
+        blob_path = self._update_cache(file_fetcher, cached_file)
+
+        return blob_path
+
+    def _update_cache(self, file_fetcher, cached_file):
+        if not cached_file:
+            cached_file = CachedFile.from_fetcher(file_fetcher)
+
+        with tempfile.NamedTemporaryFile(prefix=os.path.basename(cached_file.real_url), dir=self.cache_dir) as t:
+            shutil.copyfileobj(file_fetcher.handle, t)
+
+            cached_file.file_hash = get_file_hash(t.name)
+            blob_path = self._get_blob_path(cached_file)
+
+            if not os.path.exists(blob_path):
+                LOGGER.info("adding blob '{}' to cache".format(blob_path))
+                os.rename(t.name, blob_path)
+                t.delete = False
+
+            self._update_index(cached_file)
+
+        return blob_path
+
+    def _update_index(self, cached_file):
+        with InterProcessLock(self.cache_index_lockfile):
+            index = dict(self.index)
+            index[cached_file.url] = dict(cached_file)
+            with open(self.cache_index_file, 'w') as f:
+                json.dump(index, f, indent=2, sort_keys=True)
 
 
 class FetcherDirectDownloader(AbstractFetcherDownloader):
@@ -258,9 +310,13 @@ class AbstractFileFetcher(object):
         except (IndexError, KeyError):
             return default
 
-    @abc.abstractproperty
+    @property
+    def url(self):
+        return self.parsed_url.geturl()
+
+    @property
     def real_url(self):
-        pass
+        return self.url
 
     @abc.abstractproperty
     def handle(self):
@@ -280,10 +336,6 @@ class HTTPFetcher(AbstractFileFetcher):
 
         self.path = parsed_url.path
         self._stream = None
-
-    @property
-    def real_url(self):
-        return self.parsed_url.geturl()
 
     @property
     def response(self):
@@ -348,10 +400,6 @@ class S3Fetcher(AbstractFileFetcher):
         self.s3_client = s3_client or self.get_client(authenticated=authenticated)
 
         self._object = None
-
-    @property
-    def real_url(self):
-        return self.parsed_url.geturl()
 
     @property
     def handle(self):

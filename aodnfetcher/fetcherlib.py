@@ -248,8 +248,12 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
             if os.path.exists(blob_path):
                 LOGGER.info("'{artifact}' is current, using cached file".format(artifact=file_fetcher.url))
                 return blob_path
+        elif cached_file:
+            LOGGER.info("'{artifact}' is stale, updating cache".format(artifact=file_fetcher.url))
+            cached_file = None
+        else:
+            LOGGER.info("'{artifact}' is missing, adding to cache".format(artifact=file_fetcher.url))
 
-        LOGGER.info("'{artifact}' is missing or stale, adding to cache".format(artifact=file_fetcher.url))
         blob_path = self._update_cache(file_fetcher, cached_file)
 
         return blob_path

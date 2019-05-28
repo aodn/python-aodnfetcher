@@ -21,6 +21,7 @@ class TestFetcherLib(unittest.TestCase):
 
     @mock.patch('aodnfetcher.fetcherlib.os')
     def test_caching_downloader(self, mock_os):
+        mock_os.path.exists.return_value = False
         downloader = aodnfetcher.fetcher_downloader('cache_dir')
         self.assertIsInstance(downloader, aodnfetcher.fetcherlib.FetcherCachingDownloader)
 

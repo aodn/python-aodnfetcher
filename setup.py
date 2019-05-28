@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='aodnfetcher',
-    version='0.3',
+    version='0.4',
     packages=['aodnfetcher'],
     url='https://github.com/aodn',
     license='GPLv3',

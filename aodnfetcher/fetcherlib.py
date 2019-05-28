@@ -219,6 +219,9 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
         self.cache_index_file = os.path.join(cache_dir, cache_index_file)
         self.cache_index_lockfile = os.path.join(cache_dir, cache_index_lockfile)
 
+        if os.path.exists(self.cache_blob_dir):
+            self._prune_cache()
+
         mkdir_p(self.cache_blob_dir)
 
     @property
@@ -248,11 +251,41 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
             if os.path.exists(blob_path):
                 LOGGER.info("'{artifact}' is current, using cached file".format(artifact=file_fetcher.url))
                 return blob_path
+        elif cached_file:
+            LOGGER.info("'{artifact}' is stale, updating cache".format(artifact=file_fetcher.url))
+            cached_file = None
+        else:
+            LOGGER.info("'{artifact}' is missing, adding to cache".format(artifact=file_fetcher.url))
 
-        LOGGER.info("'{artifact}' is missing or stale, adding to cache".format(artifact=file_fetcher.url))
         blob_path = self._update_cache(file_fetcher, cached_file)
 
         return blob_path
+
+    def _prune_cache(self):
+        LOGGER.info("pruning cache")
+
+        # prune entries with a broken blob reference from the index
+        blobs_in_use = set()
+        with InterProcessLock(self.cache_index_lockfile):
+            index = dict(self.index)
+            for url, entry in index.items():
+                cached_file = CachedFile.from_dict(entry)
+                blob_path = self._get_blob_path(cached_file)
+                if not os.path.exists(blob_path):
+                    LOGGER.info("blob missing for url '{}', pruning index entry".format(url))
+                    index.pop(url)
+                blobs_in_use.add(blob_path)
+
+            with open(self.cache_index_file, 'w') as f:
+                json.dump(index, f, indent=2, sort_keys=True)
+
+        all_blobs = {os.path.join(self.cache_blob_dir, b) for b in os.listdir(self.cache_blob_dir)}
+
+        # prune orphaned blobs from the cache directory
+        orphaned_blobs = all_blobs.difference(blobs_in_use)
+        for blob in orphaned_blobs:
+            LOGGER.info("index entry missing for blob '{}', pruning blob".format(blob))
+            os.unlink(blob)
 
     def _update_cache(self, file_fetcher, cached_file):
         if not cached_file:

@@ -53,6 +53,10 @@ class InvalidArtifactError(Exception):
     pass
 
 
+class InvalidCacheEntryError(Exception):
+    pass
+
+
 class KeyResolutionError(Exception):
     def __init__(self, reason_code, message):
         self.reason_code = reason_code
@@ -195,7 +199,10 @@ class CachedFile(object):
 
     @classmethod
     def from_dict(cls, dict_):
-        return cls(**dict_) if dict_ else None
+        try:
+            return cls(**dict_) if dict_ else None
+        except TypeError:
+            raise InvalidCacheEntryError("invalid cache entry dict '{dict_}'".format(dict_=dict_))
 
     @classmethod
     def from_fetcher(cls, fetcher_, file_hash=None):
@@ -269,7 +276,13 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
         with InterProcessLock(self.cache_index_lockfile):
             index = dict(self.index)
             for url, entry in index.items():
-                cached_file = CachedFile.from_dict(entry)
+                try:
+                    cached_file = CachedFile.from_dict(entry)
+                except InvalidCacheEntryError:
+                    LOGGER.info("invalid cache entry for url '{}', pruning index entry".format(url))
+                    index.pop(url)
+                    continue
+
                 blob_path = self._get_blob_path(cached_file)
                 if not os.path.exists(blob_path):
                     LOGGER.info("blob missing for url '{}', pruning index entry".format(url))
@@ -286,6 +299,18 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
         for blob in orphaned_blobs:
             LOGGER.info("index entry missing for blob '{}', pruning blob".format(blob))
             os.unlink(blob)
+
+        # prune unknown files from cache directory
+        all_toplevel_files = {os.path.join(self.cache_dir, e) for e in os.listdir(self.cache_dir)}
+        expected_toplevel_files = {self.cache_blob_dir, self.cache_index_file, self.cache_index_lockfile}
+        unknown_toplevel_files = all_toplevel_files.difference(expected_toplevel_files)
+        for file_ in unknown_toplevel_files:
+            LOGGER.info("unexpected file '{file_}' found in cache dir, deleting".format(file_=file_))
+            try:
+                os.unlink(file_)
+            except OSError as e:
+                if e.errno == errno.EISDIR:
+                    shutil.rmtree(file_)
 
     def _update_cache(self, file_fetcher, cached_file):
         if not cached_file:

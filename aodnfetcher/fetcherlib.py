@@ -253,11 +253,15 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
 
     def _ensure_cached(self, file_fetcher):
         cached_file = self._get_cached_file(file_fetcher)
-        if cached_file and file_fetcher.unique_id == cached_file.unique_id:
+        if cached_file and cached_file.unique_id and file_fetcher.unique_id == cached_file.unique_id:
             blob_path = self._get_blob_path(cached_file)
             if os.path.exists(blob_path):
                 LOGGER.info("'{artifact}' is current, using cached file".format(artifact=file_fetcher.url))
                 return blob_path
+        elif cached_file and not cached_file.unique_id:
+            LOGGER.info("'{artifact}' has no unique identifier, must re-download".format(
+                artifact=file_fetcher.url))
+            cached_file = None
         elif cached_file:
             LOGGER.info("'{artifact}' is stale, updating cache".format(artifact=file_fetcher.url))
             cached_file = None

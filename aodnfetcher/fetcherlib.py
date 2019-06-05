@@ -21,9 +21,9 @@ try:
 except ImportError:
     from urlparse import ParseResult, parse_qs, urlparse
 
-try:
+try:  # pragma: no cover
     from urllib import urlencode
-except ImportError:
+except ImportError:  # pragma: no cover
     from urllib.parse import urlencode
 
 __all__ = [
@@ -62,7 +62,7 @@ class KeyResolutionError(Exception):
         self.reason_code = reason_code
         self.message = message
 
-    def __repr__(self):
+    def __repr__(self):  # pragma: no cover
         return "{}(message=\"{}\", reason_code=\"{}\")".format(self.__class__.__name__, self.message, self.reason_code)
 
     __str__ = __repr__
@@ -170,7 +170,7 @@ class AbstractFetcherDownloader(object):
         LOGGER.info("creating FetcherDownloader of type '{t}'".format(t=self.__class__.__name__))
 
     @abc.abstractmethod
-    def get_handle(self, file_fetcher):
+    def get_handle(self, file_fetcher):  # pragma: no cover
         pass
 
 
@@ -182,7 +182,7 @@ class CachedFile(object):
         self.real_url = real_url
         self.file_hash = file_hash
 
-    def __repr__(self):
+    def __repr__(self):  # pragma: no cover
         return ("{self.__class__.__name__}(url='{self.url}', unique_id='{self.unique_id}', "
                 "real_url='{self.real_url}', file_hash='{self.file_hash}')").format(self=self)
 
@@ -196,6 +196,9 @@ class CachedFile(object):
         return (self.url == other.url and
                 self.unique_id == other.unique_id and
                 self.real_url == other.real_url)
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
 
     @classmethod
     def from_dict(cls, dict_):
@@ -381,11 +384,11 @@ class AbstractFileFetcher(object):
         return self.url
 
     @abc.abstractproperty
-    def handle(self):
+    def handle(self):  # pragma: no cover
         pass
 
     @abc.abstractproperty
-    def unique_id(self):
+    def unique_id(self):  # pragma: no cover
         pass
 
 
@@ -488,7 +491,7 @@ class S3Fetcher(AbstractFileFetcher):
     @staticmethod
     def get_client(authenticated=False):
         s3_client_kwargs = {}
-        if authenticated:
+        if authenticated:  # pragma: no cover
             LOGGER.info('creating authenticated S3 client')
         else:
             LOGGER.info('creating anonymous S3 client')
@@ -560,7 +563,7 @@ class BaseResolvingS3Fetcher(AbstractFileFetcher):
         return self.object['ResponseMetadata']['HTTPHeaders']['etag']
 
     @abc.abstractmethod
-    def _get_key(self):
+    def _get_key(self):  # pragma: no cover
         pass
 
 

@@ -155,7 +155,7 @@ class TestCachedFile(unittest.TestCase):
         mock_file = mock.mock_open(read_data=b'mock content')
 
         fetcher = aodnfetcher.fetcherlib.fetcher('file:///tmp/test/file')
-        with mock.patch('aodnfetcher.fetcherlib.open', mock_file):
+        with mock.patch('aodnfetcher.fetcherlib.open', mock_file), mock.patch('os.path.getsize', lambda p: 1):
             cached_file = aodnfetcher.fetcherlib.CachedFile.from_fetcher(fetcher)
 
         expected_object = aodnfetcher.fetcherlib.CachedFile('file:///tmp/test/file',
@@ -221,7 +221,7 @@ class TestLocalFileFetcher(unittest.TestCase):
     def test_unique_id(self):
         mock_content_checksum = '05db393b05821f1a536ec7e7a4094abc67c6293b6489db31d70defcfa60f6a8a'
 
-        with mock.patch('aodnfetcher.fetcherlib.open', self.mock_file):
+        with mock.patch('aodnfetcher.fetcherlib.open', self.mock_file), mock.patch('os.path.getsize', lambda p: 1):
             unique_id = self.fetcher.unique_id
         self.assertEqual(unique_id, mock_content_checksum)
 

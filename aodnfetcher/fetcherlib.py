@@ -137,6 +137,9 @@ def get_file_hash(filepath):
     :param filepath: path to the file being hashed
     :return: SHA256 hash of the file
     """
+    if os.path.getsize(filepath) == 0:
+        raise ValueError("not hashing zero length file '{filepath}".format(filepath=filepath))
+
     hasher = sha256()
     with open(filepath, 'rb') as f:
         for block in iter(partial(f.read, 65536), b''):

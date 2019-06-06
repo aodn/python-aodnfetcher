@@ -21,9 +21,9 @@ try:
 except ImportError:
     from urlparse import ParseResult, parse_qs, urlparse
 
-try:
+try:  # pragma: no cover
     from urllib import urlencode
-except ImportError:
+except ImportError:  # pragma: no cover
     from urllib.parse import urlencode
 
 __all__ = [
@@ -53,12 +53,16 @@ class InvalidArtifactError(Exception):
     pass
 
 
+class InvalidCacheEntryError(Exception):
+    pass
+
+
 class KeyResolutionError(Exception):
     def __init__(self, reason_code, message):
         self.reason_code = reason_code
         self.message = message
 
-    def __repr__(self):
+    def __repr__(self):  # pragma: no cover
         return "{}(message=\"{}\", reason_code=\"{}\")".format(self.__class__.__name__, self.message, self.reason_code)
 
     __str__ = __repr__
@@ -133,6 +137,9 @@ def get_file_hash(filepath):
     :param filepath: path to the file being hashed
     :return: SHA256 hash of the file
     """
+    if os.path.getsize(filepath) == 0:
+        raise ValueError("not hashing zero length file '{filepath}".format(filepath=filepath))
+
     hasher = sha256()
     with open(filepath, 'rb') as f:
         for block in iter(partial(f.read, 65536), b''):
@@ -166,7 +173,7 @@ class AbstractFetcherDownloader(object):
         LOGGER.info("creating FetcherDownloader of type '{t}'".format(t=self.__class__.__name__))
 
     @abc.abstractmethod
-    def get_handle(self, file_fetcher):
+    def get_handle(self, file_fetcher):  # pragma: no cover
         pass
 
 
@@ -178,7 +185,7 @@ class CachedFile(object):
         self.real_url = real_url
         self.file_hash = file_hash
 
-    def __repr__(self):
+    def __repr__(self):  # pragma: no cover
         return ("{self.__class__.__name__}(url='{self.url}', unique_id='{self.unique_id}', "
                 "real_url='{self.real_url}', file_hash='{self.file_hash}')").format(self=self)
 
@@ -193,9 +200,15 @@ class CachedFile(object):
                 self.unique_id == other.unique_id and
                 self.real_url == other.real_url)
 
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
     @classmethod
     def from_dict(cls, dict_):
-        return cls(**dict_) if dict_ else None
+        try:
+            return cls(**dict_) if dict_ else None
+        except TypeError:
+            raise InvalidCacheEntryError("invalid cache entry dict '{dict_}'".format(dict_=dict_))
 
     @classmethod
     def from_fetcher(cls, fetcher_, file_hash=None):
@@ -246,11 +259,15 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
 
     def _ensure_cached(self, file_fetcher):
         cached_file = self._get_cached_file(file_fetcher)
-        if cached_file and file_fetcher.unique_id == cached_file.unique_id:
+        if cached_file and cached_file.unique_id and file_fetcher.unique_id == cached_file.unique_id:
             blob_path = self._get_blob_path(cached_file)
             if os.path.exists(blob_path):
                 LOGGER.info("'{artifact}' is current, using cached file".format(artifact=file_fetcher.url))
                 return blob_path
+        elif cached_file and not cached_file.unique_id:
+            LOGGER.info("'{artifact}' has no unique identifier, must re-download".format(
+                artifact=file_fetcher.url))
+            cached_file = None
         elif cached_file:
             LOGGER.info("'{artifact}' is stale, updating cache".format(artifact=file_fetcher.url))
             cached_file = None
@@ -269,7 +286,13 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
         with InterProcessLock(self.cache_index_lockfile):
             index = dict(self.index)
             for url, entry in index.items():
-                cached_file = CachedFile.from_dict(entry)
+                try:
+                    cached_file = CachedFile.from_dict(entry)
+                except InvalidCacheEntryError:
+                    LOGGER.info("invalid cache entry for url '{}', pruning index entry".format(url))
+                    index.pop(url)
+                    continue
+
                 blob_path = self._get_blob_path(cached_file)
                 if not os.path.exists(blob_path):
                     LOGGER.info("blob missing for url '{}', pruning index entry".format(url))
@@ -287,12 +310,26 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
             LOGGER.info("index entry missing for blob '{}', pruning blob".format(blob))
             os.unlink(blob)
 
+        # prune unknown files from cache directory
+        all_toplevel_files = {os.path.join(self.cache_dir, e) for e in os.listdir(self.cache_dir)}
+        expected_toplevel_files = {self.cache_blob_dir, self.cache_index_file, self.cache_index_lockfile}
+        unknown_toplevel_files = all_toplevel_files.difference(expected_toplevel_files)
+        for file_ in unknown_toplevel_files:
+            LOGGER.info("unexpected file '{file_}' found in cache dir, deleting".format(file_=file_))
+            try:
+                os.unlink(file_)
+            except OSError as e:
+                if e.errno == errno.EISDIR:
+                    shutil.rmtree(file_)
+
     def _update_cache(self, file_fetcher, cached_file):
         if not cached_file:
             cached_file = CachedFile.from_fetcher(file_fetcher)
 
         with tempfile.NamedTemporaryFile(prefix=os.path.basename(cached_file.real_url), dir=self.cache_dir) as t:
             shutil.copyfileobj(file_fetcher.handle, t)
+            t.flush()
+            os.fsync(t.fileno())
 
             cached_file.file_hash = get_file_hash(t.name)
             blob_path = self._get_blob_path(cached_file)
@@ -352,11 +389,11 @@ class AbstractFileFetcher(object):
         return self.url
 
     @abc.abstractproperty
-    def handle(self):
+    def handle(self):  # pragma: no cover
         pass
 
     @abc.abstractproperty
-    def unique_id(self):
+    def unique_id(self):  # pragma: no cover
         pass
 
 
@@ -459,7 +496,7 @@ class S3Fetcher(AbstractFileFetcher):
     @staticmethod
     def get_client(authenticated=False):
         s3_client_kwargs = {}
-        if authenticated:
+        if authenticated:  # pragma: no cover
             LOGGER.info('creating authenticated S3 client')
         else:
             LOGGER.info('creating anonymous S3 client')
@@ -531,7 +568,7 @@ class BaseResolvingS3Fetcher(AbstractFileFetcher):
         return self.object['ResponseMetadata']['HTTPHeaders']['etag']
 
     @abc.abstractmethod
-    def _get_key(self):
+    def _get_key(self):  # pragma: no cover
         pass
 
 

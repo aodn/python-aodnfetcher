@@ -121,7 +121,12 @@ class TestCachedFile(unittest.TestCase):
         self.assertIsNot(object1, object2)
         self.assertNotEqual(object1, object2)
 
-        self.assertNotEqual(object1, 'invalid class')
+    def test_equality_other_type(self):
+        object1 = aodnfetcher.fetcherlib.CachedFile('http://www.example.com', None, 'http://www.example.com', None)
+        object2 = 'DIFFERENT_TYPE'
+
+        self.assertIsNot(object1, object2)
+        self.assertNotEqual(object1, object2)
 
     def test_from_dict_empty(self):
         from_none = aodnfetcher.fetcherlib.CachedFile.from_dict({})
@@ -141,11 +146,16 @@ class TestCachedFile(unittest.TestCase):
 
         self.assertEqual(expected_object, from_dict)
 
+    def test_from_dict_invalid(self):
+        input_dict = {'invalid_key': ''}
+        with self.assertRaises(aodnfetcher.fetcherlib.InvalidCacheEntryError):
+            _ = aodnfetcher.fetcherlib.CachedFile.from_dict(input_dict)
+
     def test_from_fetcher(self):
         mock_file = mock.mock_open(read_data=b'mock content')
 
         fetcher = aodnfetcher.fetcherlib.fetcher('file:///tmp/test/file')
-        with mock.patch('aodnfetcher.fetcherlib.open', mock_file):
+        with mock.patch('aodnfetcher.fetcherlib.open', mock_file), mock.patch('os.path.getsize', lambda p: 1):
             cached_file = aodnfetcher.fetcherlib.CachedFile.from_fetcher(fetcher)
 
         expected_object = aodnfetcher.fetcherlib.CachedFile('file:///tmp/test/file',
@@ -211,7 +221,7 @@ class TestLocalFileFetcher(unittest.TestCase):
     def test_unique_id(self):
         mock_content_checksum = '05db393b05821f1a536ec7e7a4094abc67c6293b6489db31d70defcfa60f6a8a'
 
-        with mock.patch('aodnfetcher.fetcherlib.open', self.mock_file):
+        with mock.patch('aodnfetcher.fetcherlib.open', self.mock_file), mock.patch('os.path.getsize', lambda p: 1):
             unique_id = self.fetcher.unique_id
         self.assertEqual(unique_id, mock_content_checksum)
 
@@ -432,6 +442,18 @@ class TestSchemaBackupS3Fetcher(unittest.TestCase):
         with self.assertRaises(aodnfetcher.fetcherlib.KeyResolutionError) as cm:
             _ = fetcher.object
         self.assertEqual(cm.exception.reason_code, 'SCHEMA_NOT_FOUND')
+
+    def test_unhandled_botocore_error(self):
+        url = 'schemabackup://test-bucket/test-host/test-database/dummy_schema?timestamp=2018.07.20.04.30.30'
+        fetcher = get_mocked_s3_fetcher(url)
+
+        fetcher.s3_client.list_objects_v2.side_effect = self.list_objects_side_effect
+        dummy_error = botocore.exceptions.ClientError({'Error': {'Code': 'UnexpectedError'}}, 'GetObject')
+        fetcher.s3_client.get_object.side_effect = dummy_error
+
+        with self.assertRaises(botocore.exceptions.ClientError) as cm:
+            _ = fetcher.object
+        self.assertIs(dummy_error, cm.exception)
 
     def test_invalid_url(self):
         url = 'schemabackup://test-bucket/test-schema?timestamp=2018.07.20.04.30.30'

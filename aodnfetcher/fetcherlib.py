@@ -325,6 +325,8 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
 
         with tempfile.NamedTemporaryFile(prefix=os.path.basename(cached_file.real_url), dir=self.cache_dir) as t:
             shutil.copyfileobj(file_fetcher.handle, t)
+            t.flush()
+            os.fsync(t.fileno())
 
             cached_file.file_hash = get_file_hash(t.name)
             blob_path = self._get_blob_path(cached_file)

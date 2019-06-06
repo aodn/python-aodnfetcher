@@ -1,9 +1,9 @@
 from setuptools import setup
 
 INSTALL_REQUIRES = [
-        'boto3>=1.9.156',
+        'boto3>=1.9.161',
         'fasteners==0.14.1',
-        'requests>=2.12.1,<2.20.0'
+        'requests>=2.22.0'
     ]
 
 TESTS_REQUIRE = [
@@ -12,7 +12,7 @@ TESTS_REQUIRE = [
 
 setup(
     name='aodnfetcher',
-    version='0.5',
+    version='0.6',
     packages=['aodnfetcher'],
     url='https://github.com/aodn',
     license='GPLv3',

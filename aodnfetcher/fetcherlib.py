@@ -90,6 +90,8 @@ def fetcher(artifact, authenticated=False):
         return HTTPFetcher(parsed_url=parsed_url, local_file_hint=local_file)
     elif parsed_url.scheme == 's3':
         return S3Fetcher(parsed_url=parsed_url, local_file_hint=local_file, authenticated=authenticated)
+    elif parsed_url.scheme == 's3prefix':
+        return PrefixS3Fetcher(parsed_url=parsed_url, local_file_hint=local_file, authenticated=authenticated)
     elif parsed_url.scheme == 'file' or not parsed_url.scheme:
         return LocalFileFetcher(parsed_url=parsed_url, local_file_hint=local_file)
     else:
@@ -617,6 +619,49 @@ class JenkinsS3Fetcher(BaseResolvingS3Fetcher):
                          re.match(self.filename_pattern, a['Key']))
         sorted_keys = sorted(matching_keys, key=lambda p: int(p['build_number']))
         return sorted_keys
+
+
+class PrefixS3Fetcher(BaseResolvingS3Fetcher):
+    """Fetch the latest artifact under an s3 prefix, using Etag header to provide identifier for cache validation """
+
+    def __init__(self, parsed_url, local_file_hint=None, authenticated=False):
+        super(PrefixS3Fetcher, self).__init__(parsed_url, local_file_hint, authenticated)
+
+        self.prefix = parsed_url.path.lstrip('/')
+
+        self._all_builds = None
+        self._filename_pattern = None
+
+    @property
+    def all_builds(self):
+        if self._all_builds is None:
+            self._all_builds = [k for k in _paginate(self.s3_client.list_objects_v2, Bucket=self.bucket,
+                                                     Prefix=self.prefix)]
+        return self._all_builds
+
+    @property
+    def filename_pattern(self):
+        if self._filename_pattern is None:
+            self._filename_pattern = self.get_value_from_query_string('pattern', r'^.*\.war$')
+        return self._filename_pattern
+
+    def _get_key(self):
+        if not self.all_builds:
+            raise KeyResolutionError('NO_RESULTS',
+                                     "prefix '{s.prefix}' was invalid or returned no artifacts".format(s=self))
+
+        try:
+            return self._get_latest_matching_key()
+        except IndexError:
+            raise KeyResolutionError('NO_MATCHING_KEYS',
+                                     "no keys found for '{s.prefix}' matching '{s.filename_pattern}'".format(
+                                         s=self))
+
+    def _get_latest_matching_key(self):
+        matching_keys = (a for a in self.all_builds if
+                         re.match(self.filename_pattern, a['Key']))
+        sorted_by_date = sorted(matching_keys, key=lambda p: p['LastModified'])
+        return sorted_by_date[-1]['Key']
 
 
 class SchemaBackupS3Fetcher(BaseResolvingS3Fetcher):

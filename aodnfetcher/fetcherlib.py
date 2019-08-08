@@ -576,7 +576,6 @@ class JenkinsS3Fetcher(BaseResolvingS3Fetcher):
     """Fetch from a Jenkins managed S3 artifact bucket, resolving the latest artifact for the given job, and using Etag
         header to provide identifier for cache validation
     """
-    key_parse_pattern = re.compile(r"^jobs/(?P<job_name>[^/]+)/(?P<build_number>[^/]+)/(?P<basename>.*)$")
 
     def __init__(self, parsed_url, local_file_hint=None, authenticated=False):
         super(JenkinsS3Fetcher, self).__init__(parsed_url, local_file_hint, authenticated)
@@ -590,7 +589,7 @@ class JenkinsS3Fetcher(BaseResolvingS3Fetcher):
     def all_builds(self):
         if self._all_builds is None:
             self._all_builds = [k for k in _paginate(self.s3_client.list_objects_v2, Bucket=self.bucket,
-                                                     Prefix="jobs/{}".format(self.job_name))]
+                                                     Prefix=self.job_name)]
         return self._all_builds
 
     @property
@@ -605,18 +604,17 @@ class JenkinsS3Fetcher(BaseResolvingS3Fetcher):
                                      "job '{s.job_name}' was invalid or returned no builds".format(s=self))
 
         try:
-            latest = self._get_matching_builds()[-1]
+            return self._get_latest_matching_key()
         except IndexError:
-            raise KeyResolutionError('NO_MATCHING_BUILDS',
-                                     "no builds found for '{s.job_name}' matching '{s.filename_pattern}'".format(
+            raise KeyResolutionError('NO_MATCHING_KEYS',
+                                     "no keys found for '{s.job_name}' matching '{s.filename_pattern}'".format(
                                          s=self))
-        return "jobs/{job_name}/{build_number}/{basename}".format(**latest)
 
-    def _get_matching_builds(self):
-        matching_keys = (self.key_parse_pattern.match(a['Key']).groupdict() for a in self.all_builds if
+    def _get_latest_matching_key(self):
+        matching_keys = (a for a in self.all_builds if
                          re.match(self.filename_pattern, a['Key']))
-        sorted_keys = sorted(matching_keys, key=lambda p: int(p['build_number']))
-        return sorted_keys
+        sorted_by_date = sorted(matching_keys, key=lambda p: p['LastModified'])
+        return sorted_by_date[-1]['Key']
 
 
 class SchemaBackupS3Fetcher(BaseResolvingS3Fetcher):
@@ -687,3 +685,9 @@ class SchemaBackupS3Fetcher(BaseResolvingS3Fetcher):
             raise
 
         return key_name
+
+if __name__ == '__main__':
+    # fetcher = fetcher('jenkins://jenkins-artifacts-alexs-jenkins/promoted/python-aodnfetcher/build?pattern=^.*\.whl$')
+    fetcher = fetcher('jenkins://imos-binary/jobs/thredds_prod?pattern=^.*\.war$')
+    print(fetcher.url)
+    print(fetcher._get_key())

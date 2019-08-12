@@ -40,13 +40,13 @@ class TestFetcherLib(unittest.TestCase):
         self.assertIsInstance(fetcher, aodnfetcher.fetcherlib.HTTPFetcher)
 
     def test_local_scheme(self):
-        expected_relative_path = os.path.join(os.getcwd(), 'path/to/file')
+        expected_relative_path = os.path.join(os.getcwd(), os.path.relpath('path/to/file'))
 
         absolute_fetcher = aodnfetcher.fetcher('/path/to/file')
         self.assertIsInstance(absolute_fetcher, aodnfetcher.fetcherlib.LocalFileFetcher)
         self.assertEqual(absolute_fetcher.path, '/path/to/file')
 
-        relative_fetcher = aodnfetcher.fetcher('path/to/file')
+        relative_fetcher = aodnfetcher.fetcher(os.path.relpath('path/to/file'))
         self.assertIsInstance(relative_fetcher, aodnfetcher.fetcherlib.LocalFileFetcher)
         self.assertEqual(relative_fetcher.path, expected_relative_path)
 

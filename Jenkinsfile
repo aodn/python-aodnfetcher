@@ -24,6 +24,7 @@ pipeline {
             agent {
                 dockerfile {
                     additionalBuildArgs '--build-arg BUILDER_UID=${JENKINS_UID:-9999}'
+                    reuseNode true
                 }
             }
             stages {

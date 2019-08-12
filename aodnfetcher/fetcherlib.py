@@ -3,6 +3,7 @@ import errno
 import json
 import logging
 import os
+import posixpath
 import re
 import shutil
 import tempfile
@@ -434,7 +435,7 @@ class LocalFileFetcher(AbstractFileFetcher):
         super(LocalFileFetcher, self).__init__(parsed_url, local_file_hint)
 
         if parsed_url.netloc:
-            path = os.path.join(os.path.abspath(parsed_url.netloc), parsed_url.path.lstrip('/'))
+            path = os.path.join(os.path.abspath(parsed_url.netloc), os.path.relpath(parsed_url.path.lstrip('/')))
         elif os.path.isabs(parsed_url.path):
             path = parsed_url.path
         else:
@@ -638,11 +639,11 @@ class SchemaBackupS3Fetcher(BaseResolvingS3Fetcher):
 
     def _get_key(self):
         host_prefix_components = ['backups', '']
-        host_prefix = os.path.join(*host_prefix_components)
+        host_prefix = posixpath.join(*host_prefix_components)
 
         host_response = self.s3_client.list_objects_v2(Bucket=self.bucket, Prefix=host_prefix, Delimiter='/')
 
-        all_hosts = [os.path.relpath(c['Prefix'], host_prefix)
+        all_hosts = [posixpath.relpath(c['Prefix'], host_prefix)
                      for c in host_response.get('CommonPrefixes', [])
                      if c['Prefix'].startswith(host_prefix)]
 
@@ -650,11 +651,11 @@ class SchemaBackupS3Fetcher(BaseResolvingS3Fetcher):
             raise KeyResolutionError('HOST_NOT_FOUND',
                                      "host '{h}' not found in bucket '{b}'.".format(h=self.host, b=self.bucket))
 
-        base_prefix = os.path.join(host_prefix, self.host, 'pgsql', '')
+        base_prefix = posixpath.join(host_prefix, self.host, 'pgsql', '')
 
         timestamps_response = self.s3_client.list_objects_v2(Bucket=self.bucket, Prefix=base_prefix, Delimiter='/')
 
-        all_timestamps = sorted(os.path.relpath(c['Prefix'], base_prefix)
+        all_timestamps = sorted(posixpath.relpath(c['Prefix'], base_prefix)
                                 for c in timestamps_response.get('CommonPrefixes', [])
                                 if c['Prefix'].startswith(base_prefix))
 
@@ -674,7 +675,7 @@ class SchemaBackupS3Fetcher(BaseResolvingS3Fetcher):
                                          c=all_timestamps))
 
         key_components = [selected_timestamp, self.database, "{schema}.dump".format(schema=self.schema)]
-        key_name = os.path.join(base_prefix, *key_components)
+        key_name = posixpath.join(base_prefix, *key_components)
 
         try:
             self.s3_client.get_object(Bucket=self.bucket, Key=key_name)

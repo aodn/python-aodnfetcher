@@ -1,5 +1,6 @@
 import os
 import unittest
+from datetime import datetime
 
 import botocore.exceptions
 import mock
@@ -473,9 +474,9 @@ class TestPrefixS3Fetcher(unittest.TestCase):
 
         fetcher.s3_client.get_paginator().paginate().result_key_iters.return_value = [
             [
-                {'Key': 'prefix/1/version1.war', 'LastModified': '2020-07-29 05:41:27+00:00'},
-                {'Key': 'prefix/2/version2.war', 'LastModified': '2019-07-29 05:41:27+00:00'},
-                {'Key': 'prefix/3/version3.war', 'LastModified': '2018-07-29 05:41:27+00:00'}
+                {'Key': 'prefix/1/version1.war', 'LastModified': datetime(2020, 7, 29, 5, 41, 27)},
+                {'Key': 'prefix/2/version2.war', 'LastModified': datetime(2019, 7, 29, 5, 41, 27)},
+                {'Key': 'prefix/3/version3.war', 'LastModified': datetime(2018, 7, 29, 5, 41, 27)}
             ]
         ]
 

@@ -3,7 +3,8 @@ from setuptools import setup
 INSTALL_REQUIRES = [
         'boto3>=1.9.161',
         'fasteners==0.14.1',
-        'requests>=2.22.0'
+        'requests>=2.22.0',
+        'packaging'
     ]
 
 TESTS_REQUIRE = [

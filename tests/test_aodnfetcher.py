@@ -1,5 +1,6 @@
 import os
 import unittest
+from datetime import datetime
 
 import botocore.exceptions
 import mock
@@ -352,6 +353,134 @@ class TestJenkinsS3Fetcher(unittest.TestCase):
 
         self.assertEqual(fetcher.real_url, 's3://bucket/jobs/job/2/path2.whl')
         self.assertEqual(fetcher.local_file_hint, 'custom_path.whl')
+
+
+class TestPrefixS3Fetcher(unittest.TestCase):
+    def setUp(self):
+        self.url = 's3prefix://bucket/prefix_part_1/prefix_part_2'
+        self.fetcher = get_mocked_s3_fetcher(self.url)
+
+        self.mock_content = b'mock content'
+        self.mock_etag = 'abc123'
+        mock_body = mock.MagicMock()
+        mock_body.read.return_value = self.mock_content
+
+        self.fetcher.s3_client.get_object.return_value = {
+            'Body': mock_body,
+            'ResponseMetadata': {
+                'HTTPHeaders': {
+                    'etag': self.mock_etag
+                }
+            }
+        }
+
+        self.fetcher.s3_client.get_paginator().paginate().result_key_iters.return_value = [
+            [{'Key': 'prefix/1/path1.war', 'LastModified': datetime(2011, 7, 29, 5, 41, 27)},
+             {'Key': 'prefix/2/path2.war', 'LastModified': datetime(2012, 7, 29, 5, 41, 27)}
+            ],
+            [{'Key': 'prefix/3/path1.war', 'LastModified': datetime(2013, 7, 29, 5, 41, 27)},
+             {'Key': 'prefix/4/path2.war', 'LastModified': datetime(2014, 7, 29, 5, 41, 27)}
+            ]
+        ]
+
+        self.fetcher.s3_client.list_objects_v2.__self__ = self.fetcher.s3_client
+        self.fetcher.s3_client.list_objects_v2.__name__ = 'list_objects_v2'
+
+    def test_handle(self):
+        content = self.fetcher.handle.read()
+        self.assertEqual(content, self.mock_content)
+
+    def test_real_url(self):
+        self.assertEqual(self.fetcher.real_url, 's3://bucket/prefix/4/path2.war')
+
+    def test_unique_id(self):
+        unique_id = self.fetcher.unique_id
+        self.assertEqual(unique_id, self.mock_etag)
+
+    def test_auth_failure(self):
+        self.fetcher.s3_client.get_object.side_effect = botocore.exceptions.ClientError(
+            {'Error': {'Code': 'AuthorizationHeaderMalformed'}}, 'GetObject')
+        with self.assertRaises(aodnfetcher.fetcherlib.AuthenticationError):
+            _ = self.fetcher.object
+
+    def test_no_builds(self):
+        self.fetcher.s3_client.get_paginator().paginate().result_key_iters.return_value = []
+
+        with self.assertRaises(aodnfetcher.fetcherlib.KeyResolutionError) as cm:
+            _ = self.fetcher.object
+        self.assertEqual(cm.exception.reason_code, 'NO_RESULTS')
+
+    def test_no_matching_keys(self):
+        self.fetcher.s3_client.get_paginator().paginate().result_key_iters.return_value = [
+            [{'Key': 'prefix/3/path3.txt'}]
+        ]
+
+        with self.assertRaises(aodnfetcher.fetcherlib.KeyResolutionError) as cm:
+            _ = self.fetcher.object
+        self.assertEqual(cm.exception.reason_code, 'NO_MATCHING_KEYS')
+
+    def test_custom_filename_pattern(self):
+        url = 's3prefix://bucket/prefix?pattern=^.*\.whl$'
+        fetcher = get_mocked_s3_fetcher(url)
+        fetcher.s3_client.list_objects_v2.__self__ = fetcher.s3_client
+        fetcher.s3_client.list_objects_v2.__name__ = 'list_objects_v2'
+
+        fetcher.s3_client.get_paginator().paginate().result_key_iters.return_value = [
+            [
+                {'Key': 'prefix/1/path1.war', 'LastModified': datetime(2020, 7, 29, 5, 41, 27)},
+                {'Key': 'prefix/2/path2.whl', 'LastModified': datetime(2019, 7, 29, 5, 41, 27)},
+                {'Key': 'prefix/3/path3.whl', 'LastModified': datetime(2018, 7, 29, 5, 41, 27)}
+            ]
+        ]
+
+        self.assertEqual(fetcher.real_url, 's3://bucket/prefix/2/path2.whl')
+
+    def test_custom_filename_pattern_to_local_file(self):
+        url = 's3prefix://bucket/job?pattern=^.*\.whl$&local_file=custom_path.whl'
+        fetcher = get_mocked_s3_fetcher(url)
+        fetcher.s3_client.list_objects_v2.__self__ = fetcher.s3_client
+        fetcher.s3_client.list_objects_v2.__name__ = 'list_objects_v2'
+
+        fetcher.s3_client.get_paginator().paginate().result_key_iters.return_value = [
+            [
+                {'Key': 'prefix/2/path2.whl', 'LastModified': datetime(2020, 7, 29, 5, 41, 27)}
+            ]
+        ]
+
+        self.assertEqual(fetcher.real_url, 's3://bucket/prefix/2/path2.whl')
+        self.assertEqual(fetcher.local_file_hint, 'custom_path.whl')
+
+    def test_version_sortmethod(self):
+        url = 's3prefix://bucket/prefix?sortmethod=version'
+        fetcher = get_mocked_s3_fetcher(url)
+        fetcher.s3_client.list_objects_v2.__self__ = fetcher.s3_client
+        fetcher.s3_client.list_objects_v2.__name__ = 'list_objects_v2'
+
+        fetcher.s3_client.get_paginator().paginate().result_key_iters.return_value = [
+            [
+                {'Key': 'prefix/1/version1.war', 'LastModified': datetime(2020, 7, 29, 5, 41, 27)},
+                {'Key': 'prefix/2/version2.war', 'LastModified': datetime(2019, 7, 29, 5, 41, 27)},
+                {'Key': 'prefix/3/version3.war', 'LastModified': datetime(2018, 7, 29, 5, 41, 27)}
+            ]
+        ]
+
+        self.assertEqual(fetcher.real_url, 's3://bucket/prefix/3/version3.war')
+
+    def test_newest_sortmethod(self):
+        url = 's3prefix://bucket/prefix'
+        fetcher = get_mocked_s3_fetcher(url)
+        fetcher.s3_client.list_objects_v2.__self__ = fetcher.s3_client
+        fetcher.s3_client.list_objects_v2.__name__ = 'list_objects_v2'
+
+        fetcher.s3_client.get_paginator().paginate().result_key_iters.return_value = [
+            [
+                {'Key': 'prefix/1/version1.war', 'LastModified': datetime(2020, 7, 29, 5, 41, 27)},
+                {'Key': 'prefix/2/version2.war', 'LastModified': datetime(2019, 7, 29, 5, 41, 27)},
+                {'Key': 'prefix/3/version3.war', 'LastModified': datetime(2018, 7, 29, 5, 41, 27)}
+            ]
+        ]
+
+        self.assertEqual(fetcher.real_url, 's3://bucket/prefix/1/version1.war')
 
 
 class TestSchemaBackupS3Fetcher(unittest.TestCase):

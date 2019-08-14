@@ -72,6 +72,9 @@ Example URLs:
 http://www.example.com/artifact.zip
 https://www.example.com/artifact.zip
 s3://mybucket/prefix/artifact.zip
+s3prefix://mybucket/prefix?pattern=^.*.zip$&sortmethod=version
+s3prefix://mybucket/prefix?pattern=^.*.zip$&sortmethod=newest
+file://directory/artifact.zip
 jenkins://mybucket/myjob (downloads WAR artifact from latest build of job)
 jenkins://mybucket/myjob?pattern=^.*\.whl$ (downloads artifact matching given pattern from latest build of job)
 schemabackup://mybucket/myhost/mydatabase/myschema (downloads latest backup timestamp)

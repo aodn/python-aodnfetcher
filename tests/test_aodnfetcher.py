@@ -418,7 +418,7 @@ class TestPrefixS3Fetcher(unittest.TestCase):
             _ = self.fetcher.object
         self.assertEqual(cm.exception.reason_code, 'NO_MATCHING_KEYS')
 
-    def test_custom_jenkins_pattern(self):
+    def test_custom_filename_pattern(self):
         url = 's3prefix://bucket/prefix?pattern=^.*\.whl$'
         fetcher = get_mocked_s3_fetcher(url)
         fetcher.s3_client.list_objects_v2.__self__ = fetcher.s3_client
@@ -434,7 +434,7 @@ class TestPrefixS3Fetcher(unittest.TestCase):
 
         self.assertEqual(fetcher.real_url, 's3://bucket/prefix/2/path2.whl')
 
-    def test_custom_jenkins_pattern_to_local_file(self):
+    def test_custom_filename_pattern_to_local_file(self):
         url = 's3prefix://bucket/job?pattern=^.*\.whl$&local_file=custom_path.whl'
         fetcher = get_mocked_s3_fetcher(url)
         fetcher.s3_client.list_objects_v2.__self__ = fetcher.s3_client
@@ -448,6 +448,38 @@ class TestPrefixS3Fetcher(unittest.TestCase):
 
         self.assertEqual(fetcher.real_url, 's3://bucket/prefix/2/path2.whl')
         self.assertEqual(fetcher.local_file_hint, 'custom_path.whl')
+
+    def test_version_sortmethod(self):
+        url = 's3prefix://bucket/prefix?sortmethod=version'
+        fetcher = get_mocked_s3_fetcher(url)
+        fetcher.s3_client.list_objects_v2.__self__ = fetcher.s3_client
+        fetcher.s3_client.list_objects_v2.__name__ = 'list_objects_v2'
+
+        fetcher.s3_client.get_paginator().paginate().result_key_iters.return_value = [
+            [
+                {'Key': 'prefix/1/version1.war', 'LastModified': '2020-07-29 05:41:27+00:00'},
+                {'Key': 'prefix/2/version2.war', 'LastModified': '2019-07-29 05:41:27+00:00'},
+                {'Key': 'prefix/3/version3.war', 'LastModified': '2018-07-29 05:41:27+00:00'}
+            ]
+        ]
+
+        self.assertEqual(fetcher.real_url, 's3://bucket/prefix/3/version3.war')
+
+    def test_newest_sortmethod(self):
+        url = 's3prefix://bucket/prefix'
+        fetcher = get_mocked_s3_fetcher(url)
+        fetcher.s3_client.list_objects_v2.__self__ = fetcher.s3_client
+        fetcher.s3_client.list_objects_v2.__name__ = 'list_objects_v2'
+
+        fetcher.s3_client.get_paginator().paginate().result_key_iters.return_value = [
+            [
+                {'Key': 'prefix/1/version1.war', 'LastModified': '2020-07-29 05:41:27+00:00'},
+                {'Key': 'prefix/2/version2.war', 'LastModified': '2019-07-29 05:41:27+00:00'},
+                {'Key': 'prefix/3/version3.war', 'LastModified': '2018-07-29 05:41:27+00:00'}
+            ]
+        ]
+
+        self.assertEqual(fetcher.real_url, 's3://bucket/prefix/1/version1.war')
 
 
 class TestSchemaBackupS3Fetcher(unittest.TestCase):

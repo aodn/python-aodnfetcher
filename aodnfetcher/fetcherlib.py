@@ -15,6 +15,7 @@ import botocore.config
 import botocore.exceptions
 import requests
 from fasteners import InterProcessLock
+from packaging import version
 
 try:
     from urllib.parse import ParseResult, parse_qs, urlparse
@@ -631,6 +632,7 @@ class PrefixS3Fetcher(BaseResolvingS3Fetcher):
 
         self._all_builds = None
         self._filename_pattern = None
+        self._sortmethod = None
 
     @property
     def all_builds(self):
@@ -644,6 +646,18 @@ class PrefixS3Fetcher(BaseResolvingS3Fetcher):
         if self._filename_pattern is None:
             self._filename_pattern = self.get_value_from_query_string('pattern', r'^.*\.war$')
         return self._filename_pattern
+
+    @property
+    def sortmethod(self):
+        if self._sortmethod is None:
+            method_string = self.get_value_from_query_string('sortmethod', 'newest')
+            if method_string == 'newest':
+                self._sortmethod = lambda p: p['LastModified']
+            elif method_string == 'version':
+                self._sortmethod = lambda p: version.parse(p['Key'])
+            else:
+                raise ValueError("No such sort method '{method_string}".format(method_string=method_string))
+        return self._sortmethod
 
     def _get_key(self):
         if not self.all_builds:
@@ -660,8 +674,8 @@ class PrefixS3Fetcher(BaseResolvingS3Fetcher):
     def _get_latest_matching_key(self):
         matching_keys = (a for a in self.all_builds if
                          re.match(self.filename_pattern, a['Key']))
-        sorted_by_date = sorted(matching_keys, key=lambda p: p['LastModified'])
-        return sorted_by_date[-1]['Key']
+        sorted_keys = sorted(matching_keys, key=self.sortmethod)
+        return sorted_keys[-1]['Key']
 
 
 class SchemaBackupS3Fetcher(BaseResolvingS3Fetcher):

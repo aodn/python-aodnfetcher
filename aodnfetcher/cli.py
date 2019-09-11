@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 import textwrap
+import traceback
 
 import aodnfetcher
 
@@ -70,11 +71,11 @@ def main():
     for artifact in args.artifact:
         try:
             result = aodnfetcher.download_file(artifact, authenticated=args.authenticated, cache_dir=args.cache_dir)
-        except Exception as e:
+        except Exception:
             if args.outfile is not sys.stdout:
                 args.outfile.close()
                 os.unlink(args.outfile.name)
-            sys.exit(str(e))
+            sys.exit(traceback.format_exc())
         results[artifact] = result
 
     if not args.no_json:

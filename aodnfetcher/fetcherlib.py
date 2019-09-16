@@ -219,6 +219,20 @@ class CachedFile(object):
         return cls(fetcher_.url, fetcher_.unique_id, fetcher_.real_url, file_hash)
 
 
+def _rename_sync(src_path, dest_path):
+    def _sync_dir(path):
+        dirfd = None
+        try:
+            dirfd = os.open(os.path.dirname(path), os.O_RDONLY)
+            os.fsync(dirfd)
+        finally:
+            if dirfd:
+                os.close(dirfd)
+
+    os.rename(src_path, dest_path)
+    _sync_dir(dest_path)
+
+
 class FetcherCachingDownloader(AbstractFetcherDownloader):
     """Abstracts the interactions with a cache directory comprising of a JSON index file, and file objects corresponding
     to remote files encapsulated by Fetcher instances.
@@ -288,23 +302,23 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
         # prune entries with a broken blob reference from the index
         blobs_in_use = set()
         with InterProcessLock(self.cache_index_lockfile):
-            index = dict(self.index)
-            for url, entry in index.items():
+            new_index = self.index.copy()
+            for url, entry in self.index.items():
                 try:
                     cached_file = CachedFile.from_dict(entry)
                 except InvalidCacheEntryError:
                     LOGGER.info("invalid cache entry for url '{}', pruning index entry".format(url))
-                    index.pop(url)
+                    new_index.pop(url)
                     continue
 
                 blob_path = self._get_blob_path(cached_file)
                 if not os.path.exists(blob_path):
                     LOGGER.info("blob missing for url '{}', pruning index entry".format(url))
-                    index.pop(url)
+                    new_index.pop(url)
                 blobs_in_use.add(blob_path)
 
             with open(self.cache_index_file, 'w') as f:
-                json.dump(index, f, indent=2, sort_keys=True)
+                json.dump(new_index, f, indent=2, sort_keys=True)
 
         all_blobs = {os.path.join(self.cache_blob_dir, b) for b in os.listdir(self.cache_blob_dir)}
 
@@ -330,7 +344,8 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
         if not cached_file:
             cached_file = CachedFile.from_fetcher(file_fetcher)
 
-        with tempfile.NamedTemporaryFile(prefix=os.path.basename(cached_file.real_url), dir=self.cache_dir) as t:
+        with tempfile.NamedTemporaryFile(prefix=os.path.basename(cached_file.real_url), dir=self.cache_dir,
+                                         delete=False) as t:
             shutil.copyfileobj(file_fetcher.handle, t)
             t.flush()
             os.fsync(t.fileno())
@@ -338,10 +353,12 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
             cached_file.file_hash = get_file_hash(t.name)
             blob_path = self._get_blob_path(cached_file)
 
-            if not os.path.exists(blob_path):
+            if os.path.exists(blob_path):
+                LOGGER.info("blob '{}' already cached".format(blob_path))
+                os.remove(t.name)
+            else:
                 LOGGER.info("adding blob '{}' to cache".format(blob_path))
-                os.rename(t.name, blob_path)
-                t.delete = False
+                _rename_sync(t.name, blob_path)
 
             self._update_index(cached_file)
 

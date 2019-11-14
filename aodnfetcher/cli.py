@@ -55,7 +55,7 @@ def main():
     parser.add_argument('--enable-logging', '-l', action='store_true',
                         help='configure a basic logger to view library log output on STDERR')
     json_group = parser.add_mutually_exclusive_group()
-    json_group.add_argument('--outfile', '-o', nargs='?', type=argparse.FileType('wb'), default=sys.stdout,
+    json_group.add_argument('--outfile', '-o', nargs='?', type=argparse.FileType('w'), default=sys.stdout,
                             help='optional output file for JSON document. '
                                  'If not specified, the JSON is written to STDOUT.')
     json_group.add_argument('--no-json', '-j', action='store_true',

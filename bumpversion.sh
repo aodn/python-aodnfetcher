@@ -2,7 +2,7 @@
 
 set -euxo pipefail
 
-RELEASE_BRANCH=master
+RELEASE_BRANCH=test-release
 
 bumpversion_build() {
   bump2version patch

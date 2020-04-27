@@ -46,10 +46,6 @@ pipeline {
             }
             post {
                 success {
-                    script {
-                        def upBuildNum = promotionHelper.getUpstreamBuildNumber(currentBuild)
-                        echo upBuildNum
-                    }
                     dir('dist/') {
                         archiveArtifacts artifacts: '*.whl', fingerprint: true, onlyIfSuccessful: true
                     }

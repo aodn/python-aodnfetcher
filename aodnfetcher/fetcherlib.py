@@ -40,7 +40,6 @@ __all__ = [
     'HTTPFetcher',
     'LocalFileFetcher',
     'S3Fetcher',
-    'JenkinsS3Fetcher',
     'SchemaBackupS3Fetcher'
 ]
 
@@ -84,9 +83,7 @@ def fetcher(artifact, authenticated=False):
     local_file = qs.pop('local_file', (None,))[0]
     parsed_url = parsed_url._replace(query=urlencode(qs, True))
 
-    if parsed_url.scheme == 'jenkins':
-        return JenkinsS3Fetcher(parsed_url=parsed_url, local_file_hint=local_file, authenticated=authenticated)
-    elif parsed_url.scheme == 'schemabackup':
+    if parsed_url.scheme == 'schemabackup':
         return SchemaBackupS3Fetcher(parsed_url=parsed_url, local_file_hint=local_file, authenticated=authenticated)
     elif parsed_url.scheme in ('http', 'https'):
         return HTTPFetcher(parsed_url=parsed_url, local_file_hint=local_file)
@@ -591,53 +588,6 @@ class BaseResolvingS3Fetcher(AbstractFileFetcher):
     @abc.abstractmethod
     def _get_key(self):  # pragma: no cover
         pass
-
-
-class JenkinsS3Fetcher(BaseResolvingS3Fetcher):
-    """Fetch from a Jenkins managed S3 artifact bucket, resolving the latest artifact for the given job, and using Etag
-        header to provide identifier for cache validation
-    """
-    key_parse_pattern = re.compile(r"^jobs/(?P<job_name>[^/]+)/(?P<build_number>[^/]+)/(?P<basename>.*)$")
-
-    def __init__(self, parsed_url, local_file_hint=None, authenticated=False):
-        super(JenkinsS3Fetcher, self).__init__(parsed_url, local_file_hint, authenticated)
-
-        self.job_name = parsed_url.path.lstrip('/')
-
-        self._all_builds = None
-        self._filename_pattern = None
-
-    @property
-    def all_builds(self):
-        if self._all_builds is None:
-            self._all_builds = [k for k in _paginate(self.s3_client.list_objects_v2, Bucket=self.bucket,
-                                                     Prefix="jobs/{}".format(self.job_name))]
-        return self._all_builds
-
-    @property
-    def filename_pattern(self):
-        if self._filename_pattern is None:
-            self._filename_pattern = self.get_value_from_query_string('pattern', r'^.*\.war$')
-        return self._filename_pattern
-
-    def _get_key(self):
-        if not self.all_builds:
-            raise KeyResolutionError('NO_RESULTS',
-                                     "job '{s.job_name}' was invalid or returned no builds".format(s=self))
-
-        try:
-            latest = self._get_matching_builds()[-1]
-        except IndexError:
-            raise KeyResolutionError('NO_MATCHING_BUILDS',
-                                     "no builds found for '{s.job_name}' matching '{s.filename_pattern}'".format(
-                                         s=self))
-        return "jobs/{job_name}/{build_number}/{basename}".format(**latest)
-
-    def _get_matching_builds(self):
-        matching_keys = (self.key_parse_pattern.match(a['Key']).groupdict() for a in self.all_builds if
-                         re.match(self.filename_pattern, a['Key']))
-        sorted_keys = sorted(matching_keys, key=lambda p: int(p['build_number']))
-        return sorted_keys
 
 
 class PrefixS3Fetcher(BaseResolvingS3Fetcher):

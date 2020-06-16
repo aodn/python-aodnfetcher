@@ -8,7 +8,8 @@ INSTALL_REQUIRES = [
     ]
 
 TESTS_REQUIRE = [
-    'mock'
+    'mock',
+    'pytest'
 ]
 
 setup(

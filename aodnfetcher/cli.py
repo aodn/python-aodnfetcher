@@ -33,14 +33,15 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter,
                                      description="Fetch one or more artifacts from various URL schemes.",
                                      epilog=textwrap.dedent('''\
-                                     Supported URL schemes: http, https, jenkins, s3
+                                     Supported URL schemes: http, https, s3, s3prefix, schemabackup
                                      
                                      Example URLs:
                                      http://www.example.com/artifact.zip
                                      https://www.example.com/artifact.zip
                                      s3://mybucket/prefix/artifact.zip
-                                     jenkins://mybucket/myjob (downloads WAR artifact from latest build of job)
-                                     jenkins://mybucket/myjob?pattern=^.*\.whl$ (downloads artifact matching given pattern from latest build of job)
+                                     s3prefix://mybucket/prefix?pattern=^.*.zip$&sortmethod=version
+                                     s3prefix://mybucket/prefix?pattern=^.*.zip$&sortmethod=newest
+                                     file://directory/artifact.zip
                                      schemabackup://mybucket/myhost/mydatabase/myschema (downloads latest backup timestamp)
                                      schemabackup://mybucket/myhost/mydatabase/myschema?timestamp=YYYY.MM.DD.hh.mm.ss (downloads the backup with the corresponding timestamp)
                                      '''))

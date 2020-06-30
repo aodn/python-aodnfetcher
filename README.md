@@ -35,7 +35,7 @@ The command line exposes the fetcher functionality for use interactively, or to 
 
 In order to be useful for integrating with non-Python languages (e.g. Bash/Ruby), the utility outputs a JSON document
 which can be parsed and used to programmatically determine the path to the file(s) that were downloaded by the call to
-the program. This is required in particular by the "jenkins://" and "schemabackup://" pseudo protocols, in which case
+the program. This is required in particular by the "s3prefix://" and "schemabackup://" pseudo protocols, in which case
 the "real" path to the file is not known until it is resolved by the fetcher code.
 
 ```bash
@@ -75,8 +75,6 @@ s3://mybucket/prefix/artifact.zip
 s3prefix://mybucket/prefix?pattern=^.*.zip$&sortmethod=version
 s3prefix://mybucket/prefix?pattern=^.*.zip$&sortmethod=newest
 file://directory/artifact.zip
-jenkins://mybucket/myjob (downloads WAR artifact from latest build of job)
-jenkins://mybucket/myjob?pattern=^.*\.whl$ (downloads artifact matching given pattern from latest build of job)
 schemabackup://mybucket/myhost/mydatabase/myschema (downloads latest backup timestamp)
 schemabackup://mybucket/myhost/mydatabase/myschema?timestamp=YYYY.MM.DD.hh.mm.ss (downloads the backup with the corresponding timestamp)
 

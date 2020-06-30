@@ -57,6 +57,14 @@ class TestFetcherLib(unittest.TestCase):
 
     @mock.patch('aodnfetcher.fetcherlib.boto3')
     @mock.patch('aodnfetcher.fetcherlib.botocore')
+    def test_jenkins_scheme(self, mock_botocore, mock_boto3):
+        fetcher = aodnfetcher.fetcher('jenkins://bucket/job')
+        self.assertIsInstance(fetcher, aodnfetcher.fetcherlib.JenkinsS3Fetcher)
+        self.assertEqual(fetcher.bucket, 'bucket')
+        self.assertEqual(fetcher.job_name, 'job')
+
+    @mock.patch('aodnfetcher.fetcherlib.boto3')
+    @mock.patch('aodnfetcher.fetcherlib.botocore')
     def test_schemabackup_scheme(self, mock_botocore, mock_boto3):
         fetcher = aodnfetcher.fetcher('schemabackup://bucket/host/database/schema')
         self.assertIsInstance(fetcher, aodnfetcher.fetcherlib.SchemaBackupS3Fetcher)
@@ -253,6 +261,98 @@ class TestS3Fetcher(unittest.TestCase):
             {'Error': {'Code': 'AuthorizationHeaderMalformed'}}, 'GetObject')
         with self.assertRaises(aodnfetcher.fetcherlib.AuthenticationError):
             _ = self.fetcher.object
+
+
+class TestJenkinsS3Fetcher(unittest.TestCase):
+    def setUp(self):
+        self.url = 'jenkins://bucket/job'
+        self.fetcher = get_mocked_s3_fetcher(self.url)
+
+        self.mock_content = b'mock content'
+        self.mock_etag = 'abc123'
+        mock_body = mock.MagicMock()
+        mock_body.read.return_value = self.mock_content
+
+        self.fetcher.s3_client.get_object.return_value = {
+            'Body': mock_body,
+            'ResponseMetadata': {
+                'HTTPHeaders': {
+                    'etag': self.mock_etag
+                }
+            }
+        }
+
+        self.fetcher.s3_client.get_paginator().paginate().result_key_iters.return_value = [
+            [{'Key': 'jobs/job/1/path1.war'}, {'Key': 'jobs/job/2/path2.war'}],
+            [{'Key': 'jobs/job/3/path1.war'}, {'Key': 'jobs/job/4/path2.war'}]
+        ]
+
+        self.fetcher.s3_client.list_objects_v2.__self__ = self.fetcher.s3_client
+        self.fetcher.s3_client.list_objects_v2.__name__ = 'list_objects_v2'
+
+    def test_handle(self):
+        content = self.fetcher.handle.read()
+        self.assertEqual(content, self.mock_content)
+
+    def test_real_url(self):
+        self.assertEqual(self.fetcher.real_url, 's3://bucket/jobs/job/4/path2.war')
+
+    def test_unique_id(self):
+        unique_id = self.fetcher.unique_id
+        self.assertEqual(unique_id, self.mock_etag)
+
+    def test_auth_failure(self):
+        self.fetcher.s3_client.get_object.side_effect = botocore.exceptions.ClientError(
+            {'Error': {'Code': 'AuthorizationHeaderMalformed'}}, 'GetObject')
+        with self.assertRaises(aodnfetcher.fetcherlib.AuthenticationError):
+            _ = self.fetcher.object
+
+    def test_no_builds(self):
+        self.fetcher.s3_client.get_paginator().paginate().result_key_iters.return_value = []
+
+        with self.assertRaises(aodnfetcher.fetcherlib.KeyResolutionError) as cm:
+            _ = self.fetcher.object
+        self.assertEqual(cm.exception.reason_code, 'NO_RESULTS')
+
+    def test_no_matching_builds(self):
+        self.fetcher.s3_client.get_paginator().paginate().result_key_iters.return_value = [
+            [{'Key': 'jobs/job/3/path3.txt'}]
+        ]
+
+        with self.assertRaises(aodnfetcher.fetcherlib.KeyResolutionError) as cm:
+            _ = self.fetcher.object
+        self.assertEqual(cm.exception.reason_code, 'NO_MATCHING_BUILDS')
+
+    def test_custom_jenkins_pattern(self):
+        url = 'jenkins://bucket/job?pattern=^.*\.whl$'
+        fetcher = get_mocked_s3_fetcher(url)
+        fetcher.s3_client.list_objects_v2.__self__ = fetcher.s3_client
+        fetcher.s3_client.list_objects_v2.__name__ = 'list_objects_v2'
+
+        fetcher.s3_client.get_paginator().paginate().result_key_iters.return_value = [
+            [
+                {'Key': 'jobs/job/1/path1.war'},
+                {'Key': 'jobs/job/2/path2.whl'}
+            ]
+        ]
+
+        self.assertEqual(fetcher.real_url, 's3://bucket/jobs/job/2/path2.whl')
+
+    def test_custom_jenkins_pattern_to_local_file(self):
+        url = 'jenkins://bucket/job?pattern=^.*\.whl$&local_file=custom_path.whl'
+        fetcher = get_mocked_s3_fetcher(url)
+        fetcher.s3_client.list_objects_v2.__self__ = fetcher.s3_client
+        fetcher.s3_client.list_objects_v2.__name__ = 'list_objects_v2'
+
+        fetcher.s3_client.get_paginator().paginate().result_key_iters.return_value = [
+            [
+                {'Key': 'jobs/job/1/path1.war'},
+                {'Key': 'jobs/job/2/path2.whl'}
+            ]
+        ]
+
+        self.assertEqual(fetcher.real_url, 's3://bucket/jobs/job/2/path2.whl')
+        self.assertEqual(fetcher.local_file_hint, 'custom_path.whl')
 
 
 class TestPrefixS3Fetcher(unittest.TestCase):

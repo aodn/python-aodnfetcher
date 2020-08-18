@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from datetime import datetime
 
+import pytest
 import botocore.exceptions
 
 try:
@@ -279,13 +280,56 @@ class TestFetcherCachingDownloader(unittest.TestCase):
             self.assertEqual(
                 os.path.join(d, 'cache/blobs/807ac90e2ae393e32b4562a81d158a190eb4b26dd021713b82b31b1b457f3d59'), actual)
 
+    def test_get_handle(self):
+        with TemporaryDirectory() as d:
+            cache_dir = os.path.join(d, 'cache')
+            source_file = os.path.join(d, 'source.txt')
+            os.mkdir(cache_dir)
+            with open(source_file, 'wb') as f:
+                f.write(b'dummy_content')
+
+            direct_fetcher = aodnfetcher.fetcher(source_file)
+
+            try:
+                direct_content = direct_fetcher.handle.read()
+            finally:
+                direct_fetcher.handle.close()
+
+            cached_fetcher = aodnfetcher.fetcher(source_file)
+            downloader = aodnfetcher.fetcher_downloader(cache_dir=cache_dir)
+
+            with pytest.deprecated_call():
+                cached_handle = downloader.get_handle(cached_fetcher)
+
+            try:
+                cached_content = cached_handle.read()
+            finally:
+                cached_handle.close()
+
+            self.assertEqual(direct_content, cached_content)
+
 
 class TestFetcherDirectDownloader(unittest.TestCase):
-    def test_handle(self):
+    def test_get_handle(self):
         fetcher = aodnfetcher.fetcher('path/to/file')
         downloader = aodnfetcher.fetcher_downloader()
-        with mock.patch('aodnfetcher.fetcherlib.open', mock.mock_open()):
+        with mock.patch('aodnfetcher.fetcherlib.open', mock.mock_open()), pytest.deprecated_call():
             self.assertEqual(fetcher.handle, downloader.get_handle(fetcher))
+
+    def test_open(self):
+        downloader = aodnfetcher.fetcher_downloader()
+
+        with TemporaryDirectory() as d:
+            temp_file = os.path.join(d, 'source.txt')
+            fetcher = aodnfetcher.fetcher(temp_file)
+
+            with open(temp_file, 'wb') as f:
+                f.write(b'dummy content')
+
+            with downloader.open(fetcher) as f:
+                self.assertFalse(f.closed)
+                self.assertEqual(b'dummy content', f.read())
+            self.assertTrue(f.closed)
 
 
 class TestHTTPFetcher(unittest.TestCase):

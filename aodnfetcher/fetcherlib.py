@@ -7,6 +7,8 @@ import posixpath
 import re
 import shutil
 import tempfile
+import warnings
+from contextlib import contextmanager
 from functools import partial
 from hashlib import sha256
 from io import BytesIO
@@ -152,8 +154,8 @@ def download_file(artifact, local_file=None, authenticated=False, cache_dir=None
             with open(local_file, 'wb') as f, open(cached_path, 'rb') as g:
                 shutil.copyfileobj(g, f)
     else:
-        with open(local_file, 'wb') as f:
-            shutil.copyfileobj(downloader.get_handle(fetcher_), f)
+        with downloader.open(fetcher_) as handle, open(local_file, 'wb') as f:
+            shutil.copyfileobj(handle, f)
 
     return {
         'local_file': local_file,
@@ -204,6 +206,10 @@ class AbstractFetcherDownloader(object):
 
     @abc.abstractmethod
     def get_handle(self, file_fetcher):  # pragma: no cover
+        pass
+
+    @abc.abstractmethod
+    def open(self, file_fetcher):  # pragma: no cover
         pass
 
 
@@ -291,8 +297,19 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
         return index
 
     def get_handle(self, file_fetcher):
+        warnings.warn("This method is deprecated, update code to use the `open` context manager method, "
+                      "or the high level `download_file` function instead", DeprecationWarning)
         blob_path = self._ensure_cached(file_fetcher)
         return open(blob_path, mode='rb')
+
+    @contextmanager
+    def open(self, file_fetcher):
+        blob_path = self._ensure_cached(file_fetcher)
+        handle = open(blob_path, mode='rb')
+        try:
+            yield handle
+        finally:  # pragma: no cover
+            handle.close()
 
     def get_cache_path(self, file_fetcher):
         blob_path = self._ensure_cached(file_fetcher)
@@ -376,7 +393,9 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
 
         with tempfile.NamedTemporaryFile(prefix=os.path.basename(cached_file.real_url), dir=self.cache_dir,
                                          delete=False) as t:
-            shutil.copyfileobj(file_fetcher.handle, t)
+            with file_fetcher.open() as f:
+                shutil.copyfileobj(f, t)
+
             t.flush()
             os.fsync(t.fileno())
 
@@ -404,7 +423,17 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
 
 class FetcherDirectDownloader(AbstractFetcherDownloader):
     def get_handle(self, file_fetcher):
+        warnings.warn("This method is deprecated, update code to use the `open` context manager method, "
+                      "or the high level `download_file` function instead", DeprecationWarning)
         return file_fetcher.handle
+
+    @contextmanager
+    def open(self, file_fetcher):
+        try:
+            with file_fetcher.open() as handle:
+                yield handle
+        finally:
+            file_fetcher.close()
 
 
 class AbstractFileFetcher(object):
@@ -438,6 +467,17 @@ class AbstractFileFetcher(object):
     @property
     def real_url(self):
         return self.url
+
+    @contextmanager
+    def open(self):
+        try:
+            yield self.handle
+        finally:
+            self.close()
+
+    def close(self):
+        if self.handle:
+            self.handle.close()
 
     @abc.abstractproperty
     def handle(self):  # pragma: no cover

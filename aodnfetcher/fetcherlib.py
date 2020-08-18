@@ -109,6 +109,18 @@ def fetcher_downloader(cache_dir=None):
     return FetcherCachingDownloader(cache_dir=cache_dir) if cache_dir else FetcherDirectDownloader()
 
 
+def same_filesystem(a, b):
+    """Test whether two paths are on the same filesystem
+
+    :param a: first file path
+    :param b: second file path
+    :return: True if the paths are on the same filesystem, otherwise False
+    """
+    a_stat = os.stat(a)
+    b_stat = os.stat(b)
+    return a_stat.st_dev == b_stat.st_dev
+
+
 def download_file(artifact, local_file=None, authenticated=False, cache_dir=None):
     """Helper function to handle the most common use case
 
@@ -126,8 +138,22 @@ def download_file(artifact, local_file=None, authenticated=False, cache_dir=None
     if local_file is None:
         local_file = fetcher_.local_file_hint if fetcher_.local_file_hint else os.path.basename(fetcher_.real_url)
 
-    with open(local_file, 'wb') as f:
-        shutil.copyfileobj(downloader.get_handle(fetcher_), f)
+    if cache_dir:
+        cached_path = downloader.get_cache_path(fetcher_)
+        if same_filesystem(os.getcwd(), cached_path):
+            LOGGER.info("'{artifact}' cached on the same filesystem, hard linking".format(artifact=artifact))
+            try:
+                os.link(cached_path, local_file)
+            except FileExistsError:  # pragma: no cover
+                os.unlink(local_file)
+                os.link(cached_path, local_file)
+        else:
+            LOGGER.info("'{artifact}' cached on different filesystem, copying".format(artifact=artifact))
+            with open(local_file, 'wb') as f, open(cached_path, 'rb') as g:
+                shutil.copyfileobj(g, f)
+    else:
+        with open(local_file, 'wb') as f:
+            shutil.copyfileobj(downloader.get_handle(fetcher_), f)
 
     return {
         'local_file': local_file,
@@ -267,6 +293,10 @@ class FetcherCachingDownloader(AbstractFetcherDownloader):
     def get_handle(self, file_fetcher):
         blob_path = self._ensure_cached(file_fetcher)
         return open(blob_path, mode='rb')
+
+    def get_cache_path(self, file_fetcher):
+        blob_path = self._ensure_cached(file_fetcher)
+        return blob_path
 
     def _get_cached_file(self, file_fetcher):
         entry = self.index.get(CachedFile.from_fetcher(file_fetcher).url, {})

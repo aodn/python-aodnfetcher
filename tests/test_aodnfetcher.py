@@ -476,7 +476,7 @@ class TestJenkinsS3Fetcher(unittest.TestCase):
         self.assertEqual(cm.exception.reason_code, 'NO_MATCHING_BUILDS')
 
     def test_custom_jenkins_pattern(self):
-        url = 'jenkins://bucket/job?pattern=^.*\.whl$'
+        url = r'jenkins://bucket/job?pattern=^.*\.whl$'
         fetcher = get_mocked_s3_fetcher(url)
         fetcher.s3_client.list_objects_v2.__self__ = fetcher.s3_client
         fetcher.s3_client.list_objects_v2.__name__ = 'list_objects_v2'
@@ -491,7 +491,7 @@ class TestJenkinsS3Fetcher(unittest.TestCase):
         self.assertEqual(fetcher.real_url, 's3://bucket/jobs/job/2/path2.whl')
 
     def test_custom_jenkins_pattern_to_local_file(self):
-        url = 'jenkins://bucket/job?pattern=^.*\.whl$&local_file=custom_path.whl'
+        url = r'jenkins://bucket/job?pattern=^.*\.whl$&local_file=custom_path.whl'
         fetcher = get_mocked_s3_fetcher(url)
         fetcher.s3_client.list_objects_v2.__self__ = fetcher.s3_client
         fetcher.s3_client.list_objects_v2.__name__ = 'list_objects_v2'
@@ -572,7 +572,7 @@ class TestPrefixS3Fetcher(unittest.TestCase):
         self.assertEqual(cm.exception.reason_code, 'NO_MATCHING_KEYS')
 
     def test_custom_filename_pattern(self):
-        url = 's3prefix://bucket/prefix?pattern=^.*\.whl$'
+        url = r's3prefix://bucket/prefix?pattern=^.*\.whl$'
         fetcher = get_mocked_s3_fetcher(url)
         fetcher.s3_client.list_objects_v2.__self__ = fetcher.s3_client
         fetcher.s3_client.list_objects_v2.__name__ = 'list_objects_v2'
@@ -588,7 +588,7 @@ class TestPrefixS3Fetcher(unittest.TestCase):
         self.assertEqual(fetcher.real_url, 's3://bucket/prefix/2/path2.whl')
 
     def test_custom_filename_pattern_to_local_file(self):
-        url = 's3prefix://bucket/job?pattern=^.*\.whl$&local_file=custom_path.whl'
+        url = r's3prefix://bucket/job?pattern=^.*\.whl$&local_file=custom_path.whl'
         fetcher = get_mocked_s3_fetcher(url)
         fetcher.s3_client.list_objects_v2.__self__ = fetcher.s3_client
         fetcher.s3_client.list_objects_v2.__name__ = 'list_objects_v2'

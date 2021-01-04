@@ -72,18 +72,20 @@ class KeyResolutionError(Exception):
     __str__ = __repr__
 
 
-def fetcher(artifact, authenticated=False):
+def fetcher(artifact, authenticated=False, default_local_file=None):
     """Factory to return an appropriate AbstractFileFetcher subclass for the given artifact string, or raise an
     exception if URL scheme is unknown or invalid
 
     :param artifact: artifact URL string
     :param authenticated: if true, boto3 will use the environment credentials, otherwise an anonymous client is created
+    :param default_local_file: local file name if not supplied in the query string. The order of precedence for the
+    local file is: local_file query string parameter > default_local_file > remote file basename
     :return: AbstractFileFetcher subclass
     """
     parsed_url = urlparse(artifact)
 
     qs = parse_qs(parsed_url.query)
-    local_file = qs.pop('local_file', (None,))[0]
+    local_file = qs.pop('local_file', (default_local_file,))[0]
     parsed_url = parsed_url._replace(query=urlencode(qs, True))
 
     if parsed_url.scheme == 'jenkins':
@@ -132,33 +134,28 @@ def download_file(artifact, local_file=None, authenticated=False, cache_dir=None
     :param cache_dir: optional cache dir
     :return: dict containing information about the actual (resolved) URL and the local file path of the downloaded file
     """
-    fetcher_ = fetcher(artifact, authenticated)
+    fetcher_ = fetcher(artifact, authenticated=authenticated, default_local_file=local_file)
     downloader = fetcher_downloader(cache_dir)
-
-    # the local filename will be determined using the following order of precedence:
-    # local_file function parameter > local_file query string parameter from URL > basename of the remote file
-    if local_file is None:
-        local_file = fetcher_.local_file_hint if fetcher_.local_file_hint else os.path.basename(fetcher_.real_url)
 
     if cache_dir:
         cached_path = downloader.get_cache_path(fetcher_)
         if same_filesystem(os.getcwd(), cached_path):
             LOGGER.info("'{artifact}' cached on the same filesystem, hard linking".format(artifact=artifact))
             try:
-                os.link(cached_path, local_file)
+                os.link(cached_path, fetcher_.local_file)
             except FileExistsError:  # pragma: no cover
-                os.unlink(local_file)
-                os.link(cached_path, local_file)
+                os.unlink(fetcher_.local_file)
+                os.link(cached_path, fetcher_.local_file)
         else:
             LOGGER.info("'{artifact}' cached on different filesystem, copying".format(artifact=artifact))
-            with open(local_file, 'wb') as f, open(cached_path, 'rb') as g:
+            with open(fetcher_.local_file, 'wb') as f, open(cached_path, 'rb') as g:
                 shutil.copyfileobj(g, f)
     else:
-        with downloader.open(fetcher_) as handle, open(local_file, 'wb') as f:
+        with downloader.open(fetcher_) as handle, open(fetcher_.local_file, 'wb') as f:
             shutil.copyfileobj(handle, f)
 
     return {
-        'local_file': local_file,
+        'local_file': fetcher_.local_file,
         'real_url': fetcher_.real_url
     }
 
@@ -447,6 +444,7 @@ class AbstractFileFetcher(object):
         self.local_file_hint = local_file_hint
 
         self._handle = None
+        self._local_file = None
 
     def get_value_from_query_string(self, param, default=None):
         """Retrieve a value from the query string
@@ -459,6 +457,12 @@ class AbstractFileFetcher(object):
             return parse_qs(self.parsed_url.query)[param][0]
         except (IndexError, KeyError):
             return default
+
+    @property
+    def local_file(self):
+        if self._local_file is None:
+            self._local_file = self.local_file_hint if self.local_file_hint else os.path.basename(self.real_url)
+        return self._local_file
 
     @property
     def url(self):

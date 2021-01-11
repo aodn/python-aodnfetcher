@@ -5,7 +5,6 @@ omit =
     tests/*
     aodnfetcher/__init__.py
     aodnfetcher/cli.py
-    setup.py
 
 [report]
 exclude_lines =

@@ -1,59 +1,12 @@
-import errno
 import os
-import shutil
-import tempfile
 import unittest
 from datetime import datetime
 
-import pytest
 import botocore.exceptions
-
-try:
-    import mock
-except ImportError:
-    from unittest import mock
+import mock
 
 import aodnfetcher
 import aodnfetcher.fetcherlib
-
-
-class _TemporaryDirectory(object):  # pragma: no cover
-    """Context manager for :py:function:`tempfile.mkdtemp` (available in core library in v3.2+).
-    """
-
-    def __init__(self, suffix="", prefix=None, dir=None):
-        self._closed = False
-        self.name = None
-
-        dir_prefix = prefix if prefix else self.__class__.__name__
-        self.name = tempfile.mkdtemp(suffix=suffix, prefix=dir_prefix, dir=dir)
-
-        self._rmtree = shutil.rmtree
-
-    def __del__(self):
-        self.cleanup()
-
-    def __enter__(self):
-        return self.name
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.cleanup()
-
-    def __repr__(self):  # pragma: no cover
-        return "<{} {!r}>".format(self.__class__.__name__, self.name)
-
-    def cleanup(self):
-        try:
-            self._rmtree(self.name)
-        except OSError as e:
-            if e.errno == errno.EEXIST:
-                pass  # pragma: no cover
-
-
-try:
-    TemporaryDirectory = tempfile.TemporaryDirectory
-except AttributeError:
-    TemporaryDirectory = _TemporaryDirectory
 
 
 def get_mocked_s3_fetcher(url):
@@ -153,56 +106,6 @@ class TestFetcherLib(unittest.TestCase):
         m().write.assert_called_with(self.mock_content)
         self.assertEqual(result['local_file'], 'alternate_name')
 
-    def test_download_file_cache_same_filesystem(self):
-        old_wd = os.getcwd()
-        with TemporaryDirectory() as d:
-            os.chdir(d)
-            try:
-                cache_dir = os.path.join(d, 'cache')
-                source_file = os.path.join(d, 'source.txt')
-                os.mkdir(cache_dir)
-                with open(source_file, 'w') as f:
-                    f.write('dummy_content')
-
-                _ = aodnfetcher.download_file(source_file, local_file='dest.txt', cache_dir=cache_dir)
-
-                cached_file_path = aodnfetcher.fetcher_downloader(
-                    cache_dir=cache_dir).get_cache_path(aodnfetcher.fetcher(source_file))
-
-                source_file_inode = os.stat(source_file).st_ino
-                cached_file_inode = os.stat(cached_file_path).st_ino
-                dest_file_inode = os.stat('dest.txt').st_ino
-
-                self.assertEqual(cached_file_inode, dest_file_inode)  # file *is* a hard link to the dest file
-                self.assertNotEqual(source_file_inode, dest_file_inode)
-            finally:
-                os.chdir(old_wd)
-
-    def test_download_file_cache_different_filesystem(self):
-        old_wd = os.getcwd()
-        with TemporaryDirectory() as d, TemporaryDirectory(dir='/dev/shm') as e:
-            os.chdir(d)
-            try:
-                cache_dir = os.path.join(e, 'cache')
-                source_file = os.path.join(d, 'source.txt')
-                os.mkdir(cache_dir)
-                with open(source_file, 'w') as f:
-                    f.write('dummy_content')
-
-                _ = aodnfetcher.download_file(source_file, local_file='dest.txt', cache_dir=cache_dir)
-
-                cached_file_path = aodnfetcher.fetcher_downloader(
-                    cache_dir=cache_dir).get_cache_path(aodnfetcher.fetcher(source_file))
-
-                source_file_inode = os.stat(source_file).st_ino
-                cached_file_inode = os.stat(cached_file_path).st_ino
-                dest_file_inode = os.stat('dest.txt').st_ino
-
-                self.assertNotEqual(cached_file_inode, dest_file_inode)  # file is *not* a hard link to the dest file
-                self.assertNotEqual(source_file_inode, dest_file_inode)
-            finally:
-                os.chdir(old_wd)
-
 
 class TestCachedFile(unittest.TestCase):
     def test_equality_equal(self):
@@ -264,72 +167,17 @@ class TestCachedFile(unittest.TestCase):
         self.assertEqual(cached_file, expected_object)
 
 
-# TODO: write more tests for FetcherCachingDownloader
+# TODO: write tests for FetcherCachingDownloader
 class TestFetcherCachingDownloader(unittest.TestCase):
-    def test_get_cache_path(self):
-        with TemporaryDirectory() as d:
-            cache_dir = os.path.join(d, 'cache')
-            source_file = os.path.join(d, 'source.txt')
-            os.mkdir(cache_dir)
-            with open(source_file, 'w') as f:
-                f.write('dummy_content')
-
-            fetcher = aodnfetcher.fetcher(source_file)
-            downloader = aodnfetcher.fetcher_downloader(cache_dir=cache_dir)
-            actual = downloader.get_cache_path(fetcher)
-            self.assertEqual(
-                os.path.join(d, 'cache/blobs/807ac90e2ae393e32b4562a81d158a190eb4b26dd021713b82b31b1b457f3d59'), actual)
-
-    def test_get_handle(self):
-        with TemporaryDirectory() as d:
-            cache_dir = os.path.join(d, 'cache')
-            source_file = os.path.join(d, 'source.txt')
-            os.mkdir(cache_dir)
-            with open(source_file, 'wb') as f:
-                f.write(b'dummy_content')
-
-            direct_fetcher = aodnfetcher.fetcher(source_file)
-
-            try:
-                direct_content = direct_fetcher.handle.read()
-            finally:
-                direct_fetcher.handle.close()
-
-            cached_fetcher = aodnfetcher.fetcher(source_file)
-            downloader = aodnfetcher.fetcher_downloader(cache_dir=cache_dir)
-
-            with pytest.deprecated_call():
-                cached_handle = downloader.get_handle(cached_fetcher)
-
-            try:
-                cached_content = cached_handle.read()
-            finally:
-                cached_handle.close()
-
-            self.assertEqual(direct_content, cached_content)
+    pass
 
 
 class TestFetcherDirectDownloader(unittest.TestCase):
-    def test_get_handle(self):
+    def test_handle(self):
         fetcher = aodnfetcher.fetcher('path/to/file')
         downloader = aodnfetcher.fetcher_downloader()
-        with mock.patch('aodnfetcher.fetcherlib.open', mock.mock_open()), pytest.deprecated_call():
+        with mock.patch('aodnfetcher.fetcherlib.open', mock.mock_open()):
             self.assertEqual(fetcher.handle, downloader.get_handle(fetcher))
-
-    def test_open(self):
-        downloader = aodnfetcher.fetcher_downloader()
-
-        with TemporaryDirectory() as d:
-            temp_file = os.path.join(d, 'source.txt')
-            fetcher = aodnfetcher.fetcher(temp_file)
-
-            with open(temp_file, 'wb') as f:
-                f.write(b'dummy content')
-
-            with downloader.open(fetcher) as f:
-                self.assertFalse(f.closed)
-                self.assertEqual(b'dummy content', f.read())
-            self.assertTrue(f.closed)
 
 
 class TestHTTPFetcher(unittest.TestCase):
@@ -476,7 +324,7 @@ class TestJenkinsS3Fetcher(unittest.TestCase):
         self.assertEqual(cm.exception.reason_code, 'NO_MATCHING_BUILDS')
 
     def test_custom_jenkins_pattern(self):
-        url = r'jenkins://bucket/job?pattern=^.*\.whl$'
+        url = 'jenkins://bucket/job?pattern=^.*\.whl$'
         fetcher = get_mocked_s3_fetcher(url)
         fetcher.s3_client.list_objects_v2.__self__ = fetcher.s3_client
         fetcher.s3_client.list_objects_v2.__name__ = 'list_objects_v2'
@@ -491,7 +339,7 @@ class TestJenkinsS3Fetcher(unittest.TestCase):
         self.assertEqual(fetcher.real_url, 's3://bucket/jobs/job/2/path2.whl')
 
     def test_custom_jenkins_pattern_to_local_file(self):
-        url = r'jenkins://bucket/job?pattern=^.*\.whl$&local_file=custom_path.whl'
+        url = 'jenkins://bucket/job?pattern=^.*\.whl$&local_file=custom_path.whl'
         fetcher = get_mocked_s3_fetcher(url)
         fetcher.s3_client.list_objects_v2.__self__ = fetcher.s3_client
         fetcher.s3_client.list_objects_v2.__name__ = 'list_objects_v2'
@@ -572,7 +420,7 @@ class TestPrefixS3Fetcher(unittest.TestCase):
         self.assertEqual(cm.exception.reason_code, 'NO_MATCHING_KEYS')
 
     def test_custom_filename_pattern(self):
-        url = r's3prefix://bucket/prefix?pattern=^.*\.whl$'
+        url = 's3prefix://bucket/prefix?pattern=^.*\.whl$'
         fetcher = get_mocked_s3_fetcher(url)
         fetcher.s3_client.list_objects_v2.__self__ = fetcher.s3_client
         fetcher.s3_client.list_objects_v2.__name__ = 'list_objects_v2'
@@ -588,7 +436,7 @@ class TestPrefixS3Fetcher(unittest.TestCase):
         self.assertEqual(fetcher.real_url, 's3://bucket/prefix/2/path2.whl')
 
     def test_custom_filename_pattern_to_local_file(self):
-        url = r's3prefix://bucket/job?pattern=^.*\.whl$&local_file=custom_path.whl'
+        url = 's3prefix://bucket/job?pattern=^.*\.whl$&local_file=custom_path.whl'
         fetcher = get_mocked_s3_fetcher(url)
         fetcher.s3_client.list_objects_v2.__self__ = fetcher.s3_client
         fetcher.s3_client.list_objects_v2.__name__ = 'list_objects_v2'

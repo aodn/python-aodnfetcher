@@ -14,7 +14,7 @@ TESTS_REQUIRE = [
 
 setup(
     name='aodnfetcher',
-    version='0.6.12',
+    version='0.0.0',
     packages=['aodnfetcher'],
     url='https://github.com/aodn',
     license='GPLv3',

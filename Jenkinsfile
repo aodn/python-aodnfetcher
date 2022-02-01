@@ -28,13 +28,13 @@ pipeline {
                 }
                 stage('test') {
                     steps {
-                        sh 'python3 -m pip install --user -r test_requirements.txt'
+                        sh 'pip install --user -r test_requirements.txt'
                         sh 'pytest'
                     }
                 }
                 stage('package') {
                     steps {
-                        sh 'python3 setup.py bdist_wheel --universal'
+                        sh 'python setup.py bdist_wheel --universal'
                     }
                 }
             }

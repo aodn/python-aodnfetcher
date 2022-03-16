@@ -2,7 +2,7 @@
 [![coverage](https://codecov.io/gh/aodn/python-aodnfetcher/branch/master/graph/badge.svg)](https://codecov.io/gh/aodn/python-aodnfetcher)
 
 # python-aodnfetcher
-Multi-protocol artifact fetcher library/utility
+Multi-protocol artifact fetcher library for fetching AODN software artifacts from AWS S3 buckets and other locations. A commandline interface, which implements the library interface is also included to support http, https, jenkins and s3 schemes.
 
 ## Installation
 

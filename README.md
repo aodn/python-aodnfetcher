@@ -4,8 +4,10 @@
 # python-aodnfetcher
 Multi-protocol artifact fetcher library for fetching AODN software artifacts from AWS S3 buckets and other locations. A commandline interface, which implements the library interface is also included to support http, https, jenkins and s3 schemes.
 
-## Installation
+## Licensing
+This project is licensed under the terms of the GNU GPLv3 license.
 
+## Installation
 Note: it is recommended to install this in a [virtualenv](https://virtualenv.pypa.io/en/stable/).
 
 ### Install directly from GitHub

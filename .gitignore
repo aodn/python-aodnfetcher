@@ -1,4 +1,6 @@
-# Created by .ignore support plugin (hsz.mobi)
+# Ignore the version file, it's created on install
+aodnfetcher/_version.py
+
 ### Python template
 # Byte-compiled / optimized / DLL files
 __pycache__/

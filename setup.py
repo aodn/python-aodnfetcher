@@ -9,12 +9,14 @@ INSTALL_REQUIRES = [
 
 TESTS_REQUIRE = [
     'mock',
-    'pytest'
+    'pytest',
+    'setuptools_scm',
 ]
 
 setup(
     name='aodnfetcher',
-    version='0.0.0',
+    use_scm_version=True,
+    setup_requires=['setuptools_scm'],
     packages=['aodnfetcher'],
     url='https://github.com/aodn',
     license='GPLv3',

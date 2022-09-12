@@ -4,13 +4,12 @@ ARG BUILDER_UID=9999
 ARG DEBIAN_FRONTEND=noninteractive
 
 ENV PATH /home/builder/.local/bin:$PATH
-ENV PYTHON_VERSION 3.8.12
+ENV PYTHON_VERSION 3.8.13
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     git \
     python3-dev \
-    wget \
     # Pyenv pre-requisites
     make build-essential libssl-dev zlib1g-dev \
     libbz2-dev libreadline-dev libsqlite3-dev wget curl llvm \
@@ -29,10 +28,12 @@ RUN set -ex \
     && pyenv rehash \
     && chmod -R a+w $PYENV_ROOT/shims
 
+RUN pip install --upgrade pip==22.1.2 setuptools==63.1.0 wheel build
+
 RUN pip install \
-    Cython==0.29 \
-    bump2version==0.5.10 \
-    wheel
+    Cython==0.29.30 \
+    bump2version==1.0.1 \
+    setuptools-scm==7.0.4
 
 RUN useradd --create-home --no-log-init --shell /bin/bash --uid $BUILDER_UID builder
 USER builder

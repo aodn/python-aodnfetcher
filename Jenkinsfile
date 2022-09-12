@@ -34,7 +34,7 @@ pipeline {
                 }
                 stage('package') {
                     steps {
-                        sh 'python setup.py bdist_wheel --universal'
+                        sh 'python -m build -w'
                     }
                 }
             }

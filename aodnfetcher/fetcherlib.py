@@ -142,7 +142,7 @@ def download_file(artifact, local_file=None, authenticated=False, cache_dir=None
 
     if cache_dir:
         cached_path = downloader.get_cache_path(fetcher_)
-        if same_filesystem(os.getcwd(), cached_path):
+        if same_filesystem(os.getcwd(), cached_path) and same_filesystem(local_file, cached_path):
             LOGGER.info("'{artifact}' cached on the same filesystem, hard linking".format(artifact=artifact))
             try:
                 os.link(cached_path, local_file)
@@ -834,3 +834,7 @@ class SchemaBackupS3Fetcher(BaseResolvingS3Fetcher):
             raise
 
         return key_name
+
+
+if __name__ == '__main__':
+    print('debug')
